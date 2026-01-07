@@ -389,6 +389,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       await get().loadThreads()
       
     } catch (error: any) {
+      // Ignore abort errors - they're expected when user clicks Stop
+      if (error.name === 'AbortError') {
+        return
+      }
+      
       console.error('Failed to send message:', error)
       const errorMessage = error.message || 'Failed to get response'
       set((state) => ({
@@ -399,6 +404,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         )
       }))
     } finally {
+      currentAbortController = null
       set({ isStreaming: false })
     }
   },
@@ -577,6 +583,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       await get().loadThreads()
       
     } catch (error: any) {
+      // Ignore abort errors - they're expected when user clicks Stop
+      if (error.name === 'AbortError') {
+        return
+      }
+      
       console.error('Failed to start engineer:', error)
       set((state) => ({
         messages: state.messages.map((m) => 
@@ -591,6 +602,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         )
       }))
     } finally {
+      currentAbortController = null
       set({ isStreaming: false })
     }
   },
