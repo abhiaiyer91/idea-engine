@@ -185,11 +185,52 @@ app.get('/api/issues/:number', async (c) => {
 
 // ============ Chat API ============
 
-// Chat with the Product Visionary agent (streaming)
+// Helper to create SSE stream from agent response
+function createSSEStream(c: any, response: any) {
+  return stream(c, async (streamWriter) => {
+    c.header('Content-Type', 'text/event-stream')
+    c.header('Cache-Control', 'no-cache')
+    c.header('Connection', 'keep-alive')
+    
+    for await (const chunk of response.fullStream) {
+      const payload = (chunk as any).payload || chunk
+      
+      if (chunk.type === 'text-delta') {
+        const text = payload.textDelta || payload.text || (chunk as any).textDelta || (chunk as any).text || ''
+        if (text) {
+          await streamWriter.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+        }
+      } else if (chunk.type === 'tool-call') {
+        await streamWriter.write(`data: ${JSON.stringify({ 
+          type: 'tool-call', 
+          toolCallId: payload.toolCallId || payload.id,
+          toolName: payload.toolName || payload.name,
+          args: payload.args || payload.arguments,
+        })}\n\n`)
+      } else if (chunk.type === 'tool-result') {
+        const result = payload.result
+        await streamWriter.write(`data: ${JSON.stringify({ 
+          type: 'tool-result', 
+          toolCallId: payload.toolCallId || payload.id,
+          toolName: payload.toolName || payload.name,
+          result: typeof result === 'string' 
+            ? result.slice(0, 500)
+            : result,
+        })}\n\n`)
+      } else if (chunk.type === 'step-finish') {
+        await streamWriter.write(`data: ${JSON.stringify({ type: 'step-finish' })}\n\n`)
+      } else if (chunk.type === 'finish') {
+        await streamWriter.write(`data: ${JSON.stringify({ type: 'finish' })}\n\n`)
+      }
+    }
+  })
+}
+
+// Unified chat endpoint - works for both visionary and engineer
 app.post('/api/chat', async (c) => {
   try {
     const body = await c.req.json()
-    const { message, threadId, apiKeys } = body
+    const { message, threadId, agentType, issueNumber, apiKeys } = body
     
     if (!message) {
       return c.json({ error: 'Message is required' }, 400)
@@ -206,19 +247,22 @@ app.post('/api/chat', async (c) => {
       }, 400)
     }
     
-    const agent = mastra.getAgent('productVisionaryAgent')
+    // Determine which agent to use
+    const isEngineer = agentType === 'engineer' || threadId?.startsWith('engineer-')
+    const agent = mastra.getAgent(isEngineer ? 'engineerAgent' : 'productVisionaryAgent')
+    
+    // Determine thread ID
+    const finalThreadId = threadId || (isEngineer 
+      ? `engineer-${issueNumber}` 
+      : `visionary-${crypto.randomUUID()}`)
     
     const response = await agent.stream(message, {
-      threadId: threadId || `visionary-${crypto.randomUUID()}`,
+      threadId: finalThreadId,
       resourceId: 'founder-mode-user',
+      ...(isEngineer ? { maxSteps: 100 } : {}),
     })
 
-    // Stream the response
-    return stream(c, async (streamWriter) => {
-      for await (const chunk of response.textStream) {
-        await streamWriter.write(chunk)
-      }
-    })
+    return createSSEStream(c, response)
     
   } catch (error: any) {
     console.error('Chat error:', error)
@@ -226,87 +270,7 @@ app.post('/api/chat', async (c) => {
   }
 })
 
-// Chat with an Engineer agent on a specific issue (streaming with SSE)
-// Thread ID format: engineer-{issueNumber}
-app.post('/api/engineer/chat', async (c) => {
-  try {
-    const body = await c.req.json()
-    const { message, issueNumber, apiKeys } = body
-    
-    if (!issueNumber) {
-      return c.json({ error: 'Issue number is required' }, 400)
-    }
-    
-    if (!message) {
-      return c.json({ error: 'Message is required' }, 400)
-    }
-
-    // Set API keys
-    if (apiKeys?.anthropic) {
-      process.env.ANTHROPIC_API_KEY = apiKeys.anthropic
-    }
-
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return c.json({ error: 'Anthropic API key not configured' }, 400)
-    }
-
-    // Thread ID is deterministic based on issue number
-    const threadId = `engineer-${issueNumber}`
-    
-    const agent = mastra.getAgent('engineerAgent')
-    
-    const response = await agent.stream(message, {
-      threadId,
-      resourceId: 'founder-mode-user',
-      maxSteps: 100,
-    })
-
-    // Stream response with tool calls as SSE (same format as /engineer/start)
-    return stream(c, async (streamWriter) => {
-      c.header('Content-Type', 'text/event-stream')
-      c.header('Cache-Control', 'no-cache')
-      c.header('Connection', 'keep-alive')
-      
-      for await (const chunk of response.fullStream) {
-        const payload = (chunk as any).payload || chunk
-        
-        if (chunk.type === 'text-delta') {
-          const text = payload.textDelta || payload.text || ''
-          if (text) {
-            await streamWriter.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
-          }
-        } else if (chunk.type === 'tool-call') {
-          await streamWriter.write(`data: ${JSON.stringify({ 
-            type: 'tool-call', 
-            toolCallId: payload.toolCallId || payload.id,
-            toolName: payload.toolName || payload.name,
-            args: payload.args || payload.arguments,
-          })}\n\n`)
-        } else if (chunk.type === 'tool-result') {
-          const result = payload.result
-          await streamWriter.write(`data: ${JSON.stringify({ 
-            type: 'tool-result', 
-            toolCallId: payload.toolCallId || payload.id,
-            toolName: payload.toolName || payload.name,
-            result: typeof result === 'string' 
-              ? result.slice(0, 500)
-              : result,
-          })}\n\n`)
-        } else if (chunk.type === 'step-finish') {
-          await streamWriter.write(`data: ${JSON.stringify({ type: 'step-finish' })}\n\n`)
-        } else if (chunk.type === 'finish') {
-          await streamWriter.write(`data: ${JSON.stringify({ type: 'finish' })}\n\n`)
-        }
-      }
-    })
-    
-  } catch (error: any) {
-    console.error('Engineer chat error:', error)
-    return c.json({ error: error.message || 'Failed to process message' }, 500)
-  }
-})
-
-// Start an engineer on an issue - sends initial prompt and streams response with tool calls
+// Start an engineer on an issue - fetches issue and sends initial prompt
 app.post('/api/engineer/start', async (c) => {
   try {
     const body = await c.req.json()
@@ -363,49 +327,7 @@ Do NOT stop until you have a PR URL. Begin now.`
       maxSteps: 100,
     })
 
-    // Stream response with tool calls as SSE
-    return stream(c, async (streamWriter) => {
-      // Set headers for SSE
-      c.header('Content-Type', 'text/event-stream')
-      c.header('Cache-Control', 'no-cache')
-      c.header('Connection', 'keep-alive')
-      
-      let textBuffer = ''
-      
-      // Process the full stream which includes tool calls
-      for await (const chunk of response.fullStream) {
-        const payload = (chunk as any).payload || chunk
-        
-        if (chunk.type === 'text-delta') {
-          const text = payload.textDelta || payload.text || (chunk as any).textDelta || (chunk as any).text || ''
-          if (text) {
-            textBuffer += text
-            await streamWriter.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
-          }
-        } else if (chunk.type === 'tool-call') {
-          await streamWriter.write(`data: ${JSON.stringify({ 
-            type: 'tool-call', 
-            toolCallId: payload.toolCallId || payload.id,
-            toolName: payload.toolName || payload.name,
-            args: payload.args || payload.arguments,
-          })}\n\n`)
-        } else if (chunk.type === 'tool-result') {
-          const result = payload.result
-          await streamWriter.write(`data: ${JSON.stringify({ 
-            type: 'tool-result', 
-            toolCallId: payload.toolCallId || payload.id,
-            toolName: payload.toolName || payload.name,
-            result: typeof result === 'string' 
-              ? result.slice(0, 500)
-              : result,
-          })}\n\n`)
-        } else if (chunk.type === 'step-finish') {
-          await streamWriter.write(`data: ${JSON.stringify({ type: 'step-finish' })}\n\n`)
-        } else if (chunk.type === 'finish') {
-          await streamWriter.write(`data: ${JSON.stringify({ type: 'finish' })}\n\n`)
-        }
-      }
-    })
+    return createSSEStream(c, response)
     
   } catch (error: any) {
     console.error('Engineer start error:', error)
