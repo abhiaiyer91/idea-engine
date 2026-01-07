@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { marked } from 'marked'
+import { marked, type Tokens } from 'marked'
 import hljs from 'highlight.js'
 
 // Import highlight.js CSS for syntax highlighting
@@ -15,33 +15,35 @@ const configureMarked = () => {
   marked.setOptions({
     gfm: true,
     breaks: true,
-    highlight: (code: string, lang: string) => {
-      if (lang && hljs.getLanguage(lang)) {
-        try {
-          return hljs.highlight(code, { language: lang }).value
-        } catch (err) {
-          console.warn('Highlight.js error:', err)
-        }
-      }
-      return hljs.highlightAuto(code).value
-    }
   })
 
   // Custom renderer for better styling
   const renderer = new marked.Renderer()
 
   // Override code block rendering to add copy functionality
-  renderer.code = (code: string, language?: string) => {
-    const lang = language || 'text'
-    const escapedCode = code.replace(/"/g, '&quot;')
+  renderer.code = ({ text, lang }: Tokens.Code) => {
+    const language = lang || 'text'
+    let highlighted: string
+    
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        highlighted = hljs.highlight(text, { language: lang }).value
+      } else {
+        highlighted = hljs.highlightAuto(text).value
+      }
+    } catch {
+      highlighted = text
+    }
+    
+    const escapedCode = text.replace(/"/g, '&quot;').replace(/'/g, "\\'").replace(/\n/g, '\\n')
     
     return `
       <div class="code-block-container">
         <div class="code-block-header">
-          <span class="code-block-language">${lang}</span>
+          <span class="code-block-language">${language}</span>
           <button 
             class="code-block-copy" 
-            onclick="navigator.clipboard.writeText('${escapedCode}').then(() => {
+            onclick="navigator.clipboard.writeText('${escapedCode}'.replace(/\\\\n/g, '\\n')).then(() => {
               this.textContent = 'Copied!';
               setTimeout(() => this.textContent = 'Copy', 2000);
             })"
@@ -50,40 +52,23 @@ const configureMarked = () => {
             Copy
           </button>
         </div>
-        <pre class="code-block-content"><code class="hljs language-${lang}">${hljs.highlight(code, { language: lang }).value}</code></pre>
+        <pre class="code-block-content"><code class="hljs language-${language}">${highlighted}</code></pre>
       </div>
     `
   }
 
   // Override inline code rendering
-  renderer.codespan = (code: string) => {
-    return `<code class="inline-code">${code}</code>`
-  }
-
-  // Override table rendering for better styling
-  renderer.table = (header: string, body: string) => {
-    return `
-      <div class="table-container">
-        <table class="markdown-table">
-          <thead>${header}</thead>
-          <tbody>${body}</tbody>
-        </table>
-      </div>
-    `
+  renderer.codespan = ({ text }: Tokens.Codespan) => {
+    return `<code class="inline-code">${text}</code>`
   }
 
   // Override link rendering to handle external links
-  renderer.link = (href: string, title: string | null, text: string) => {
+  renderer.link = ({ href, title, text }: Tokens.Link) => {
     const titleAttr = title ? ` title="${title}"` : ''
     const isExternal = href.startsWith('http')
     const target = isExternal ? ' target="_blank" rel="noopener noreferrer"' : ''
     
     return `<a href="${href}"${titleAttr}${target} class="markdown-link">${text}</a>`
-  }
-
-  // Override blockquote rendering
-  renderer.blockquote = (quote: string) => {
-    return `<blockquote class="markdown-blockquote">${quote}</blockquote>`
   }
 
   marked.use({ renderer })

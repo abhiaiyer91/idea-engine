@@ -330,7 +330,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                   const data = JSON.parse(line.slice(6))
                   
                   if (data.type === 'text') {
-                    fullContent += data.content || ''
+                    // Handle content - ensure it's a string
+                    const content = typeof data.content === 'string' 
+                      ? data.content 
+                      : (data.content ? JSON.stringify(data.content) : '')
+                    fullContent += content
+                    set((state) => ({
+                      messages: state.messages.map((m) => 
+                        m.id === assistantMessageId 
+                          ? { ...m, content: fullContent }
+                          : m
+                      )
+                    }))
+                  } else if (data.type === 'step-finish') {
+                    // Add paragraph break between steps
+                    fullContent += '\n\n'
                     set((state) => ({
                       messages: state.messages.map((m) => 
                         m.id === assistantMessageId 
@@ -520,8 +534,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                 const data = JSON.parse(line.slice(6))
                 
                 if (data.type === 'text') {
-                  // Accumulate text content
-                  fullContent += data.content || ''
+                  // Handle content - ensure it's a string
+                  const content = typeof data.content === 'string' 
+                    ? data.content 
+                    : (data.content ? JSON.stringify(data.content) : '')
+                  fullContent += content
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { ...m, content: fullContent }
+                        : m
+                    )
+                  }))
+                } else if (data.type === 'step-finish') {
+                  // Add paragraph break between steps
+                  fullContent += '\n\n'
                   set((state) => ({
                     messages: state.messages.map((m) => 
                       m.id === assistantMessageId 
