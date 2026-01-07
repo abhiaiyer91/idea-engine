@@ -35,8 +35,8 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
         const formatted = JSON.stringify(obj, null, 2)
         
         // Limit very long outputs to prevent UI issues
-        if (formatted.length > 1000) {
-          return formatted.substring(0, 1000) + "\\n... (truncated)"
+        if (formatted.length > 2000) {
+          return formatted.substring(0, 2000) + "\\n... (truncated)"
         }
         
         return formatted
@@ -57,10 +57,10 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     if (hasError) {
       shouldAutoExpand = true
     } else {
-      // Auto-expand if input/output is very short (less than 100 chars total)
+      // Auto-expand if input/output is very short (less than 150 chars total)
       const inputStr = hasInput ? formatJson()(props.toolCall.input) : ""
       const outputStr = hasOutput ? formatJson()(props.toolCall.output) : ""
-      shouldAutoExpand = (inputStr.length + outputStr.length) < 100
+      shouldAutoExpand = (inputStr.length + outputStr.length) < 150
     }
     
     return { hasInput, hasOutput, hasError, shouldAutoExpand }
@@ -108,17 +108,45 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     return contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError
   })
   
-  // Get appropriate icon for tool type
+  // Get appropriate icon for tool type with enhanced mapping
   const getToolIcon = createMemo(() => {
     const name = props.toolCall.name.toLowerCase()
+    
+    // File operations
     if (name.includes('file') || name.includes('read') || name.includes('write')) return "📄"
+    if (name.includes('list') && name.includes('directory')) return "📁"
+    
+    // Git operations
     if (name.includes('git') || name.includes('commit') || name.includes('push')) return "🔀"
-    if (name.includes('search') || name.includes('find')) return "🔍"
+    if (name.includes('pull') || name.includes('fetch')) return "⬇️"
+    if (name.includes('diff') || name.includes('status')) return "📊"
+    if (name.includes('worktree') || name.includes('branch')) return "🌿"
+    
+    // Search operations
+    if (name.includes('search') || name.includes('find') || name.includes('grep')) return "🔍"
+    
+    // GitHub operations
     if (name.includes('issue') || name.includes('github')) return "🐛"
+    if (name.includes('pr') || name.includes('pullrequest')) return "🔄"
+    if (name.includes('comment')) return "💬"
+    
+    // Package management
     if (name.includes('npm') || name.includes('install')) return "📦"
+    if (name.includes('uninstall') || name.includes('remove')) return "🗑️"
+    
+    // Build/Test operations
     if (name.includes('test') || name.includes('run')) return "🧪"
     if (name.includes('build') || name.includes('compile')) return "🔨"
+    if (name.includes('lint') || name.includes('format')) return "✨"
+    
+    // Default
     return "🔧"
+  })
+  
+  // Format duration for completed tool calls
+  const getDuration = createMemo(() => {
+    // This would need to be tracked in the ToolCall type, but for now we'll skip it
+    return ""
   })
   
   return (

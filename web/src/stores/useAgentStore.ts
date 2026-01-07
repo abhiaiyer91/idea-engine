@@ -62,14 +62,109 @@ interface AgentStore {
   clearLogs: () => void
 }
 
+// Enhanced tool call parsing to handle various formats
+function parseToolCallBlocks(text: string): { cleanText: string; toolCalls: ToolCall[] } {
+  const toolCalls: ToolCall[] = []
+  let cleanText = text
+
+  // Pattern 1: <function_calls> blocks (Claude format)
+  const claudeToolCallRegex = /<function_calls>([\s\S]*?)<\/antml:function_calls>/g
+  const claudeInvokeRegex = /<invoke name="([^"]+)">([\s\S]*?)<\/antml:invoke>/g
+  const claudeParamRegex = /<parameter name="([^"]+)">([^<]*)<\/antml:parameter>/g
+  
+  let blockMatch
+  while ((blockMatch = claudeToolCallRegex.exec(text)) !== null) {
+    const blockContent = blockMatch[1]
+    
+    // Parse individual invocations within the block
+    let invokeMatch
+    while ((invokeMatch = claudeInvokeRegex.exec(blockContent)) !== null) {
+      const toolName = invokeMatch[1]
+      const invokeContent = invokeMatch[2]
+      
+      // Parse parameters
+      const input: Record<string, any> = {}
+      let paramMatch
+      while ((paramMatch = claudeParamRegex.exec(invokeContent)) !== null) {
+        const paramName = paramMatch[1]
+        const paramValue = paramMatch[2].trim()
+        
+        // Try to parse JSON values, fallback to string
+        try {
+          input[paramName] = JSON.parse(paramValue)
+        } catch {
+          input[paramName] = paramValue
+        }
+      }
+      
+      toolCalls.push({
+        id: crypto.randomUUID(),
+        name: toolName,
+        status: 'calling',
+        input
+      })
+    }
+    
+    // Remove the tool call block from the text
+    cleanText = cleanText.replace(blockMatch[0], '')
+  }
+
+  // Pattern 2: JSON tool call blocks (OpenAI format)
+  const jsonToolCallRegex = /```json\s*\{\s*"tool_calls":\s*\[([\s\S]*?)\]\s*\}\s*```/g
+  let jsonMatch
+  while ((jsonMatch = jsonToolCallRegex.exec(text)) !== null) {
+    try {
+      const toolCallsJson = JSON.parse(`[${jsonMatch[1]}]`)
+      toolCallsJson.forEach((tc: any) => {
+        toolCalls.push({
+          id: tc.id || crypto.randomUUID(),
+          name: tc.function?.name || tc.name || 'unknown',
+          status: 'calling',
+          input: tc.function?.arguments ? JSON.parse(tc.function.arguments) : tc.arguments || {}
+        })
+      })
+      
+      // Remove the JSON block from the text
+      cleanText = cleanText.replace(jsonMatch[0], '')
+    } catch (e) {
+      console.warn('Failed to parse JSON tool call block:', e)
+    }
+  }
+
+  // Pattern 3: Raw JSON objects that look like tool calls
+  const rawJsonRegex = /\{[^}]*"(?:tool_calls?|function_calls?|name)"[^}]*\}/g
+  let rawMatch
+  while ((rawMatch = rawJsonRegex.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(rawMatch[0])
+      if (obj.name || obj.function?.name) {
+        toolCalls.push({
+          id: obj.id || crypto.randomUUID(),
+          name: obj.function?.name || obj.name,
+          status: 'calling',
+          input: obj.function?.arguments ? JSON.parse(obj.function.arguments) : obj.arguments || obj.parameters || {}
+        })
+        
+        // Remove the raw JSON from the text
+        cleanText = cleanText.replace(rawMatch[0], '')
+      }
+    } catch (e) {
+      // Not a valid JSON object, ignore
+    }
+  }
+
+  return { cleanText: cleanText.trim(), toolCalls }
+}
+
 // Helper function to extract tool calls from message content
 function extractContentAndToolCalls(content: any): { text: string; toolCalls: ToolCall[] } {
   let text = ""
   let toolCalls: ToolCall[] = []
   
-  // Simple string
+  // Simple string - check for embedded tool calls
   if (typeof content === 'string') {
-    return { text: content, toolCalls: [] }
+    const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(content)
+    return { text: cleanText, toolCalls: parsedToolCalls }
   }
   
   // MastraMessageContentV2 format: { format: 2, parts: [...] }
@@ -80,7 +175,12 @@ function extractContentAndToolCalls(content: any): { text: string; toolCalls: To
       try {
         // Text part
         if (part.type === 'text' && part.text) {
-          textParts.push(part.text)
+          // Parse tool calls from text content
+          const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(part.text)
+          if (cleanText.trim()) {
+            textParts.push(cleanText)
+          }
+          toolCalls.push(...parsedToolCalls)
         }
         // Tool call/invocation
         else if (part.type === 'tool-invocation' || part.type === 'tool-call') {
@@ -101,8 +201,9 @@ function extractContentAndToolCalls(content: any): { text: string; toolCalls: To
           }
           toolCalls.push(toolCall)
         }
-        // Handle tool-result parts
+        // Handle tool-result parts (separate from tool calls)
         else if (part.type === 'tool-result') {
+          // Find corresponding tool call and update it
           const existingCall = toolCalls.find(tc => tc.id === part.toolCallId)
           if (existingCall) {
             existingCall.output = part.result
@@ -113,7 +214,7 @@ function extractContentAndToolCalls(content: any): { text: string; toolCalls: To
           }
         }
       } catch (partError: any) {
-        console.warn(`Error processing message part: ${partError.message}`)
+        console.warn('Error processing message part:', partError.message)
       }
     })
     
@@ -121,63 +222,92 @@ function extractContentAndToolCalls(content: any): { text: string; toolCalls: To
   }
   // Legacy array format
   else if (Array.isArray(content)) {
-    text = content
+    const textContent = content
       .map((c: any) => c.text || (typeof c === 'string' ? c : ''))
       .filter(Boolean)
       .join('')
+    
+    const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(textContent)
+    text = cleanText
+    toolCalls = parsedToolCalls
   }
   // Object with text property
   else if (content?.text) {
-    text = content.text
+    const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(content.text)
+    text = cleanText
+    toolCalls = parsedToolCalls
   }
   
   return { text, toolCalls }
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
+  // ============ Initial State ============
   agents: [
-    { id: "pv-1", name: "Product Visionary", type: "visionary", status: "idle" },
+    { id: 'pv-1', name: 'Product Visionary', type: 'visionary', status: 'idle' },
   ],
-  currentAgentId: "pv-1",
+  currentAgentId: 'pv-1',
+  
   threads: [],
   messages: [],
   currentThreadId: null,
+  
   isLoading: false,
   isStreaming: false,
+  
   issues: [],
   issuesLoading: false,
+  
   logs: [],
 
+  // ============ Agent Actions ============
+  
   setCurrentAgent: (agentId: string) => {
+    console.log('[setCurrentAgent] Setting agent:', agentId)
     set({ currentAgentId: agentId })
+    
+    // If switching to engineer, load their thread
+    if (agentId.startsWith('eng-')) {
+      const issueNumber = parseInt(agentId.replace('eng-', ''), 10)
+      const threadId = `engineer-${issueNumber}`
+      console.log('[setCurrentAgent] Loading engineer thread:', threadId)
+      get().setCurrentThread(threadId)
+      get().loadMessages(threadId)
+    }
   },
 
   setCurrentThread: (threadId: string | null) => {
-    set({ currentThreadId: threadId })
+    console.log('[setCurrentThread] Setting thread:', threadId)
+    set({ currentThreadId: threadId, messages: [] })
     if (threadId) {
-      // Determine agent from thread ID
-      if (threadId.startsWith('engineer-')) {
-        const issueNumber = parseInt(threadId.replace('engineer-', ''), 10)
-        set({ currentAgentId: `eng-${issueNumber}` })
-      } else {
-        set({ currentAgentId: 'pv-1' })
-      }
       get().loadMessages(threadId)
-    } else {
-      set({ messages: [] })
     }
   },
 
   createNewThread: () => {
-    set({ currentThreadId: null, messages: [], currentAgentId: "pv-1" })
+    console.log('[createNewThread] Creating new thread')
+    set({ currentThreadId: null, messages: [] })
   },
 
+  // ============ Thread & Message Actions ============
+  
   loadThreads: async () => {
     try {
       set({ isLoading: true })
       const res = await fetch(`${API_BASE}/threads`)
       const data = await res.json()
-      set({ threads: data.threads || [] })
+      
+      const threads: Thread[] = (data.threads || []).map((t: any) => ({
+        id: t.id,
+        title: t.title || 'Untitled Thread',
+        resourceId: t.resourceId,
+        createdAt: new Date(t.createdAt),
+        updatedAt: new Date(t.updatedAt),
+        metadata: t.metadata || {},
+        type: t.id.startsWith('engineer-') ? 'engineer' : 'visionary'
+      }))
+      
+      set({ threads })
     } catch (error) {
       console.error('Failed to load threads:', error)
     } finally {
@@ -187,11 +317,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   loadMessages: async (threadId: string) => {
     try {
+      console.log('[loadMessages] Loading messages for thread:', threadId)
       const res = await fetch(`${API_BASE}/threads/${threadId}/messages`)
       const data = await res.json()
       
-      // Parse messages and extract tool calls
-      const parsedMessages: ChatMessage[] = (data.messages || [])
+      const messages: ChatMessage[] = (data.messages || [])
         .filter((m: any) => m.role === 'user' || m.role === 'assistant')
         .map((m: any) => {
           const { text, toolCalls } = extractContentAndToolCalls(m.content)
@@ -204,8 +334,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           }
         })
         .filter((m: ChatMessage) => m.content.trim() !== '' || (m.toolCalls && m.toolCalls.length > 0))
-
-      set({ messages: parsedMessages })
+      
+      console.log('[loadMessages] Loaded messages:', messages.length, 'messages with', messages.filter(m => m.toolCalls).length, 'having tool calls')
+      set({ messages })
     } catch (error) {
       console.error('Failed to load messages:', error)
       set({ messages: [] })
@@ -218,7 +349,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       set((state) => ({
         threads: state.threads.filter(t => t.id !== threadId),
         currentThreadId: state.currentThreadId === threadId ? null : state.currentThreadId,
-        messages: state.currentThreadId === threadId ? [] : state.messages,
+        messages: state.currentThreadId === threadId ? [] : state.messages
       }))
     } catch (error) {
       console.error('Failed to delete thread:', error)
@@ -226,66 +357,32 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
-    const { currentThreadId, currentAgentId, messages } = get()
+    const { currentAgentId, currentThreadId } = get()
     
-    // Determine if this is for visionary or engineer
-    const isEngineer = currentAgentId.startsWith('eng-')
-    const issueNumber = isEngineer ? parseInt(currentAgentId.replace('eng-', ''), 10) : null
-    
-    // Generate thread ID if new
-    let threadId = currentThreadId
-    if (!threadId) {
-      threadId = isEngineer ? `engineer-${issueNumber}` : `visionary-${crypto.randomUUID()}`
-      set({ currentThreadId: threadId })
-      
-      // Add optimistic thread
-      const now = new Date()
-      set((state) => ({
-        threads: [{
-          id: threadId!,
-          title: isEngineer ? `Engineer: Issue #${issueNumber}` : content.slice(0, 50) + (content.length > 50 ? '...' : ''),
-          resourceId: 'founder-mode-user',
-          createdAt: now,
-          updatedAt: now,
-        }, ...state.threads]
-      }))
-    }
-
-    // Add user message optimistically
+    // Add user message immediately
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content,
       timestamp: new Date(),
     }
-    set({ messages: [...messages, userMessage] })
-
-    // Add placeholder for assistant
-    const assistantMessageId = crypto.randomUUID()
-    const assistantMessage: ChatMessage = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-    }
+    
     set((state) => ({ 
-      messages: [...state.messages, assistantMessage],
-      isStreaming: true,
+      messages: [...state.messages, userMessage],
+      isStreaming: true 
     }))
 
     try {
       const apiKeys = getStoredApiKeys()
-      
-      // Choose endpoint based on agent type
-      const endpoint = isEngineer ? `${API_BASE}/engineer/chat` : `${API_BASE}/chat`
-      const body = isEngineer 
-        ? { message: content, issueNumber, apiKeys }
-        : { message: content, threadId, apiKeys }
-      
-      const res = await fetch(endpoint, {
+      const res = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ 
+          message: content, 
+          agentId: currentAgentId,
+          threadId: currentThreadId,
+          apiKeys 
+        }),
       })
 
       if (!res.ok) {
@@ -300,45 +397,96 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       let buffer = ''
       const toolCallsMap = new Map<string, ToolCall>()
 
+      // Add initial assistant message
+      const assistantMessageId = crypto.randomUUID()
+      const assistantMessage: ChatMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+      }
+      set((state) => ({ 
+        messages: [...state.messages, assistantMessage],
+      }))
+
       if (reader) {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
           
           const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
+          const lines = buffer.split('\\n')
+          buffer = lines.pop() || ''
           
-          // Check if this is SSE format (engineer) or plain text (visionary)
-          if (isEngineer) {
-            // Parse SSE for engineers
-            buffer += chunk
-            const lines = buffer.split('\\n')
-            buffer = lines.pop() || ''
-            
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6))
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                
+                if (data.type === 'text') {
+                  fullContent += data.content || ''
                   
-                  if (data.type === 'text') {
-                    fullContent += data.content || ''
-                    set((state) => ({
-                      messages: state.messages.map((m) => 
-                        m.id === assistantMessageId 
-                          ? { ...m, content: fullContent }
-                          : m
-                      )
-                    }))
-                  } else if (data.type === 'tool-call') {
-                    // Create tool call and add to message
-                    const toolCall: ToolCall = {
-                      id: data.toolCallId,
-                      name: data.toolName,
-                      status: 'calling',
-                      input: data.args || {},
+                  // Parse tool calls from the accumulated content
+                  const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(fullContent)
+                  
+                  // Merge with existing tool calls from streaming
+                  const allToolCalls = [...Array.from(toolCallsMap.values()), ...parsedToolCalls]
+                  
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { 
+                            ...m, 
+                            content: cleanText,
+                            toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined
+                          }
+                        : m
+                    )
+                  }))
+                } else if (data.type === 'tool-call') {
+                  // Create tool call and add to message
+                  const toolCall: ToolCall = {
+                    id: data.toolCallId,
+                    name: data.toolName,
+                    status: 'calling',
+                    input: data.args || {},
+                  }
+                  toolCallsMap.set(data.toolCallId, toolCall)
+                  
+                  // Update message with tool calls
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { ...m, toolCalls: Array.from(toolCallsMap.values()) }
+                        : m
+                    )
+                  }))
+                  
+                  // Also add to logs
+                  const toolLog: ToolCallLog = {
+                    id: data.toolCallId,
+                    toolName: data.toolName,
+                    status: 'calling',
+                    args: data.args,
+                    timestamp: new Date(),
+                  }
+                  get().addLog({ 
+                    type: 'tool-call', 
+                    message: `Calling ${data.toolName}`,
+                    toolCall: toolLog,
+                  })
+                } else if (data.type === 'tool-result') {
+                  // Update existing tool call with result
+                  const existing = toolCallsMap.get(data.toolCallId)
+                  if (existing) {
+                    existing.status = data.isError ? 'error' : 'complete'
+                    existing.output = data.result
+                    if (data.isError) {
+                      existing.error = data.result
                     }
-                    toolCallsMap.set(data.toolCallId, toolCall)
                     
-                    // Update message with tool calls
+                    // Update message with updated tool calls
                     set((state) => ({
                       messages: state.messages.map((m) => 
                         m.id === assistantMessageId 
@@ -347,61 +495,39 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                       )
                     }))
                     
-                    // Also add to logs
-                    const toolLog: ToolCallLog = {
-                      id: data.toolCallId,
-                      toolName: data.toolName,
-                      status: 'calling',
-                      args: data.args,
-                      timestamp: new Date(),
-                    }
-                    get().addLog({ 
-                      type: 'tool-call', 
-                      message: `Calling ${data.toolName}`,
-                      toolCall: toolLog,
-                    })
-                  } else if (data.type === 'tool-result') {
-                    // Update existing tool call with result
-                    const existing = toolCallsMap.get(data.toolCallId)
-                    if (existing) {
-                      existing.status = 'complete'
-                      existing.output = data.result
-                      
-                      // Update message with updated tool calls
-                      set((state) => ({
-                        messages: state.messages.map((m) => 
-                          m.id === assistantMessageId 
-                            ? { ...m, toolCalls: Array.from(toolCallsMap.values()) }
-                            : m
-                        )
-                      }))
-                      
-                      // Update logs
-                      set((state) => ({
-                        logs: state.logs.map(log => 
-                          log.toolCall?.id === data.toolCallId
-                            ? { ...log, toolCall: { ...log.toolCall, status: 'complete', result: data.result } }
-                            : log
-                        )
-                      }))
-                    }
+                    // Update logs
+                    set((state) => ({
+                      logs: state.logs.map(log => 
+                        log.toolCall?.id === data.toolCallId
+                          ? { ...log, toolCall: { ...log.toolCall, status: existing.status, result: data.result, error: data.isError ? data.result : undefined } }
+                          : log
+                      )
+                    }))
                   }
-                } catch (e) {
-                  // Ignore parse errors
                 }
+              } catch (e) {
+                // Ignore parse errors
               }
             }
-          } else {
-            // Plain text for visionary
-            fullContent += chunk
-            set((state) => ({
-              messages: state.messages.map((m) => 
-                m.id === assistantMessageId 
-                  ? { ...m, content: fullContent }
-                  : m
-              )
-            }))
           }
+        }
+        
+        // Final content update to ensure tool calls are properly parsed
+        if (fullContent) {
+          const { cleanText, toolCalls: finalToolCalls } = parseToolCallBlocks(fullContent)
+          const allToolCalls = [...Array.from(toolCallsMap.values()), ...finalToolCalls]
+          
+          set((state) => ({
+            messages: state.messages.map((m) => 
+              m.id === assistantMessageId 
+                ? { 
+                    ...m, 
+                    content: cleanText,
+                    toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined
+                  }
+                : m
+            )
+          }))
         }
       }
 
@@ -519,10 +645,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                 
                 if (data.type === 'text') {
                   fullContent += data.content || ''
+                  
+                  // Parse tool calls from the accumulated content
+                  const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(fullContent)
+                  
+                  // Merge with existing tool calls from streaming
+                  const allToolCalls = [...Array.from(toolCallsMap.values()), ...parsedToolCalls]
+                  
                   set((state) => ({
                     messages: state.messages.map((m) => 
                       m.id === assistantMessageId 
-                        ? { ...m, content: fullContent }
+                        ? { 
+                            ...m, 
+                            content: cleanText,
+                            toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined
+                          }
                         : m
                     )
                   }))
@@ -599,6 +736,24 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             }
           }
         }
+        
+        // Final content update to ensure tool calls are properly parsed
+        if (fullContent) {
+          const { cleanText, toolCalls: finalToolCalls } = parseToolCallBlocks(fullContent)
+          const allToolCalls = [...Array.from(toolCallsMap.values()), ...finalToolCalls]
+          
+          set((state) => ({
+            messages: state.messages.map((m) => 
+              m.id === assistantMessageId 
+                ? { 
+                    ...m, 
+                    content: cleanText,
+                    toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined
+                  }
+                : m
+            )
+          }))
+        }
       }
 
       // Refresh threads
@@ -606,22 +761,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       
     } catch (error: any) {
       console.error('Failed to start engineer:', error)
-      const errorMessage = error.message || 'Failed to start engineer'
-      
-      // Add error message
-      const errorMessageObj: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: `Error: ${errorMessage}`,
-        timestamp: new Date(),
-      }
-      set((state) => ({ 
-        messages: [errorMessageObj],
+      set((state) => ({
         agents: state.agents.map(a => 
           a.id === `eng-${issueNumber}`
             ? { ...a, status: 'error' as const }
             : a
-        )
+        ),
+        isStreaming: false
       }))
     } finally {
       set({ isStreaming: false })
@@ -631,13 +777,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   // ============ Log Actions ============
   
   addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => {
-    set((state) => ({
-      logs: [...state.logs, {
-        ...log,
-        id: crypto.randomUUID(),
-        timestamp: new Date(),
-      }]
-    }))
+    const newLog: LogEntry = {
+      ...log,
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+    }
+    set((state) => ({ logs: [...state.logs, newLog] }))
   },
 
   clearLogs: () => {

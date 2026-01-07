@@ -40,11 +40,12 @@ function getVisionary() {
   return mastra.getAgent('productVisionaryAgent')
 }
 
-// Tool call parsing utilities
+// Enhanced tool call parsing utilities to handle multiple formats
 function parseToolCallBlocks(text: string): { cleanText: string; toolCalls: ToolCall[] } {
-  const toolCallRegex = /<function_calls>([\s\S]*?)<\/antml:function_calls>/g
-  const invokeRegex = /<invoke name="([^"]+)">([\s\S]*?)<\/antml:invoke>/g
-  const paramRegex = /<parameter name="([^"]+)">([^<]*)<\/antml:parameter>/g
+  // Support both <function_calls> and <function_calls> formats
+  const toolCallRegex = /<(?:antml:)?function_calls>([\s\S]*?)<\/(?:antml:)?function_calls>/g
+  const invokeRegex = /<(?:antml:)?invoke name="([^"]+)">([\s\S]*?)<\/(?:antml:)?invoke>/g
+  const paramRegex = /<(?:antml:)?parameter name="([^"]+)">([^<]*)<\/(?:antml:)?parameter>/g
   
   const toolCalls: ToolCall[] = []
   let cleanText = text
@@ -56,6 +57,7 @@ function parseToolCallBlocks(text: string): { cleanText: string; toolCalls: Tool
     
     // Parse individual invocations within the block
     let invokeMatch
+    invokeRegex.lastIndex = 0 // Reset regex state
     while ((invokeMatch = invokeRegex.exec(blockContent)) !== null) {
       const toolName = invokeMatch[1]
       const invokeContent = invokeMatch[2]
@@ -63,13 +65,21 @@ function parseToolCallBlocks(text: string): { cleanText: string; toolCalls: Tool
       // Parse parameters
       const input: Record<string, any> = {}
       let paramMatch
+      paramRegex.lastIndex = 0 // Reset regex state
       while ((paramMatch = paramRegex.exec(invokeContent)) !== null) {
         const paramName = paramMatch[1]
         const paramValue = paramMatch[2].trim()
         
         // Try to parse JSON values, fallback to string
         try {
-          input[paramName] = JSON.parse(paramValue)
+          // Handle common JSON patterns
+          if (paramValue.startsWith('{') || paramValue.startsWith('[') || 
+              paramValue === 'true' || paramValue === 'false' || 
+              paramValue === 'null' || /^-?\d+(\.\d+)?$/.test(paramValue)) {
+            input[paramName] = JSON.parse(paramValue)
+          } else {
+            input[paramName] = paramValue
+          }
         } catch {
           input[paramName] = paramValue
         }
