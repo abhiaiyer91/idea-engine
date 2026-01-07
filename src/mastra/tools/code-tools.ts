@@ -515,6 +515,71 @@ export const gitPush = createTool({
   },
 });
 
+export const gitFetch = createTool({
+  id: "git-fetch",
+  description: "Fetch latest changes from remote without merging",
+  inputSchema: z.object({
+    issueNumber: z.number().optional().describe("Issue number (to fetch in worktree)"),
+    remote: z.string().default("origin").describe("Remote name"),
+    branch: z.string().optional().describe("Specific branch to fetch"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    remote: z.string(),
+    branch: z.string().optional(),
+  }),
+  execute: async (input) => {
+    const cwd = getWorkingDir(input.issueNumber);
+    
+    const args = ["fetch", input.remote];
+    if (input.branch) {
+      args.push(input.branch);
+    }
+    
+    await runGitCommand(args, cwd);
+    
+    return { success: true, remote: input.remote, branch: input.branch };
+  },
+});
+
+export const gitPull = createTool({
+  id: "git-pull",
+  description: "Pull latest changes from remote and merge into current branch",
+  inputSchema: z.object({
+    issueNumber: z.number().optional().describe("Issue number (to pull in worktree)"),
+    remote: z.string().default("origin").describe("Remote name"),
+    branch: z.string().optional().describe("Specific branch to pull (defaults to current branch's upstream)"),
+    rebase: z.boolean().default(false).describe("Use rebase instead of merge"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    currentBranch: z.string(),
+    mergeType: z.string(),
+  }),
+  execute: async (input) => {
+    const cwd = getWorkingDir(input.issueNumber);
+    
+    const currentBranch = await runGitCommand(["branch", "--show-current"], cwd);
+    
+    const args = ["pull"];
+    if (input.rebase) {
+      args.push("--rebase");
+    }
+    args.push(input.remote);
+    if (input.branch) {
+      args.push(input.branch);
+    }
+    
+    await runGitCommand(args, cwd);
+    
+    return { 
+      success: true, 
+      currentBranch,
+      mergeType: input.rebase ? "rebase" : "merge",
+    };
+  },
+});
+
 export const gitDiff = createTool({
   id: "git-diff",
   description: "Get diff of changes (staged or unstaged)",
@@ -636,6 +701,126 @@ export const linkPrToIssue = createTool({
   },
 });
 
+// ============================================
+// NPM TOOLS
+// ============================================
+
+export const npmInstall = createTool({
+  id: "npm-install",
+  description: "Install npm packages. Can install all dependencies or specific packages.",
+  inputSchema: z.object({
+    issueNumber: z.number().optional().describe("Issue number (to install in worktree)"),
+    packages: z.array(z.string()).optional().describe("Specific packages to install (if empty, runs npm install)"),
+    saveDev: z.boolean().default(false).describe("Install as dev dependency (--save-dev)"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    installed: z.array(z.string()),
+    output: z.string(),
+  }),
+  execute: async (input) => {
+    const cwd = getWorkingDir(input.issueNumber);
+    
+    const args = ["install"];
+    
+    if (input.packages && input.packages.length > 0) {
+      args.push(...input.packages);
+      if (input.saveDev) {
+        args.push("--save-dev");
+      }
+    }
+    
+    const { stdout, stderr } = await execFileAsync("npm", args, { 
+      cwd,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    
+    return { 
+      success: true, 
+      installed: input.packages || ["all dependencies"],
+      output: (stdout + stderr).slice(0, 2000), // Truncate output
+    };
+  },
+});
+
+export const npmUninstall = createTool({
+  id: "npm-uninstall",
+  description: "Uninstall npm packages",
+  inputSchema: z.object({
+    issueNumber: z.number().optional().describe("Issue number (to uninstall in worktree)"),
+    packages: z.array(z.string()).describe("Packages to uninstall"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    uninstalled: z.array(z.string()),
+    output: z.string(),
+  }),
+  execute: async (input) => {
+    const cwd = getWorkingDir(input.issueNumber);
+    
+    if (!input.packages || input.packages.length === 0) {
+      throw new Error("Must specify at least one package to uninstall");
+    }
+    
+    const args = ["uninstall", ...input.packages];
+    
+    const { stdout, stderr } = await execFileAsync("npm", args, { 
+      cwd,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    
+    return { 
+      success: true, 
+      uninstalled: input.packages,
+      output: (stdout + stderr).slice(0, 2000), // Truncate output
+    };
+  },
+});
+
+export const npmRun = createTool({
+  id: "npm-run",
+  description: "Run an npm script defined in package.json",
+  inputSchema: z.object({
+    issueNumber: z.number().optional().describe("Issue number (to run in worktree)"),
+    script: z.string().describe("Script name to run (e.g., 'build', 'test', 'lint')"),
+    args: z.array(z.string()).optional().describe("Additional arguments to pass to the script"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    script: z.string(),
+    output: z.string(),
+  }),
+  execute: async (input) => {
+    const cwd = getWorkingDir(input.issueNumber);
+    
+    const args = ["run", input.script];
+    if (input.args && input.args.length > 0) {
+      args.push("--", ...input.args);
+    }
+    
+    try {
+      const { stdout, stderr } = await execFileAsync("npm", args, { 
+        cwd,
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 120000, // 2 minute timeout
+      });
+      
+      return { 
+        success: true, 
+        script: input.script,
+        output: (stdout + stderr).slice(0, 5000), // Truncate output
+      };
+    } catch (error: any) {
+      // Include error output for debugging
+      return {
+        success: false,
+        script: input.script,
+        output: (error.stdout || "") + (error.stderr || "") + (error.message || ""),
+      };
+    }
+  },
+});
+
 // Export all tools
 export const codeTools = {
   // Worktree management
@@ -651,7 +836,13 @@ export const codeTools = {
   gitCommit,
   gitPush,
   gitDiff,
+  gitFetch,
+  gitPull,
   // PR tools
   createPullRequest,
   linkPrToIssue,
+  // NPM tools
+  npmInstall,
+  npmUninstall,
+  npmRun,
 };

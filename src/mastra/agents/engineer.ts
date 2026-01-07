@@ -12,8 +12,13 @@ import {
   gitCommit,
   gitPush,
   gitDiff,
+  gitFetch,
+  gitPull,
   createPullRequest,
   linkPrToIssue,
+  npmInstall,
+  npmUninstall,
+  npmRun,
 } from "../tools/code-tools";
 
 // Model configuration - uses API key from environment
@@ -81,6 +86,18 @@ If you have not called ALL of these tools, you are NOT done. Keep going.
 - TypeScript with proper types
 - Handle errors appropriately
 
+## Additional Tools Available
+- gitFetch: Fetch latest changes from remote without merging
+- gitPull: Pull and merge latest changes (use rebase option if preferred)
+- npmInstall: Install dependencies (all or specific packages, supports --save-dev)
+- npmUninstall: Remove packages
+- npmRun: Run npm scripts (build, test, lint, etc.)
+
+Use these when needed:
+- After setupWorktree, consider npmInstall to ensure dependencies are up to date
+- Use npmRun to run tests or build to verify your changes work
+- Use gitFetch/gitPull if you need to sync with latest changes
+
 ## REMEMBER
 🚨 You are an ENGINEER, not a CONSULTANT. You WRITE CODE and CREATE PRs.
 🚨 Explaining what you would do is NOT the same as doing it.
@@ -104,9 +121,15 @@ If you have not called ALL of these tools, you are NOT done. Keep going.
     gitCommit,
     gitPush,
     gitDiff,
+    gitFetch,
+    gitPull,
     // PR tools
     createPullRequest,
     linkPrToIssue,
+    // NPM tools
+    npmInstall,
+    npmUninstall,
+    npmRun,
   },
   memory: new Memory(),
 });
