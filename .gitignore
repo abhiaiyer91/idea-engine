@@ -2,6 +2,8 @@ output.txt
 node_modules
 dist
 .mastra
+.foundermode
+.worktrees
 .env.development
 .env
 *.db

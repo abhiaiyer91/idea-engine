@@ -1,27 +1,33 @@
-
 import { Mastra } from '@mastra/core/mastra';
-import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
-import { Observability } from '@mastra/observability';
 import { weatherWorkflow } from './workflows/weather-workflow';
 import { weatherAgent } from './agents/weather-agent';
+import { productVisionaryAgent } from './agents/product-visionary';
+import { engineerAgent } from './agents/engineer';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
+import { tuiLogger } from '../tui/stores/logStore';
+
+// Storage persisted to .foundermode directory
+const storage = new LibSQLStore({
+  id: "founder-mode-storage",
+  url: "file:.foundermode/mastra.db",
+});
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
-  agents: { weatherAgent },
+  agents: { 
+    weatherAgent,
+    productVisionaryAgent,
+    engineerAgent,
+  },
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
-  storage: new LibSQLStore({
-    id: "mastra-storage",
-    // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
-    url: ":memory:",
-  }),
-  logger: new PinoLogger({
-    name: 'Mastra',
-    level: 'info',
-  }),
-  observability: new Observability({
-    // Enables DefaultExporter and CloudExporter for tracing
-    default: { enabled: true },
-  }),
+  storage,
+  logger: tuiLogger,
 });
+
+// Export storage for direct access
+export { storage };
+
+// Export agents for direct use in TUI
+export { productVisionaryAgent } from './agents/product-visionary';
+export { engineerAgent } from './agents/engineer';
