@@ -376,22 +376,13 @@ Do NOT stop until you have a PR URL. Begin now.`
       for await (const chunk of response.fullStream) {
         const payload = (chunk as any).payload || chunk
         
-        // Debug: log all chunk types
-        console.log('[Stream] Chunk type:', chunk.type, 'payload keys:', Object.keys(payload))
-        
         if (chunk.type === 'text-delta') {
-          // Text chunk - try multiple possible locations for text
           const text = payload.textDelta || payload.text || (chunk as any).textDelta || (chunk as any).text || ''
           if (text) {
             textBuffer += text
-            console.log('[Stream] Sending text chunk:', text.length, 'chars')
             await streamWriter.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
-          } else {
-            console.log('[Stream] text-delta but no text found, payload:', JSON.stringify(payload).slice(0, 200))
           }
         } else if (chunk.type === 'tool-call') {
-          // Tool call started
-          console.log('[Stream] Tool call:', payload.toolName || payload.name)
           await streamWriter.write(`data: ${JSON.stringify({ 
             type: 'tool-call', 
             toolCallId: payload.toolCallId || payload.id,
@@ -399,23 +390,18 @@ Do NOT stop until you have a PR URL. Begin now.`
             args: payload.args || payload.arguments,
           })}\n\n`)
         } else if (chunk.type === 'tool-result') {
-          // Tool call completed
           const result = payload.result
           await streamWriter.write(`data: ${JSON.stringify({ 
             type: 'tool-result', 
             toolCallId: payload.toolCallId || payload.id,
             toolName: payload.toolName || payload.name,
             result: typeof result === 'string' 
-              ? result.slice(0, 500) // Truncate long results
+              ? result.slice(0, 500)
               : result,
           })}\n\n`)
         } else if (chunk.type === 'step-finish') {
-          // Step finished - agent completed a step (may have more steps)
-          console.log('[Stream] Step finished, text so far:', textBuffer.length, 'chars')
           await streamWriter.write(`data: ${JSON.stringify({ type: 'step-finish' })}\n\n`)
         } else if (chunk.type === 'finish') {
-          // Stream finished
-          console.log('[Stream] Finished, total text:', textBuffer.length, 'chars')
           await streamWriter.write(`data: ${JSON.stringify({ type: 'finish' })}\n\n`)
         }
       }

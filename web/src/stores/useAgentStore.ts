@@ -412,7 +412,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   // Start an engineer on an issue - creates thread and sends initial prompt
   startEngineer: async (issueNumber: number) => {
-    console.log('[startEngineer] Starting engineer for issue:', issueNumber)
     const threadId = `engineer-${issueNumber}`
     
     // Switch to engineer view
@@ -422,7 +421,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       messages: [],
       isStreaming: true,
     })
-    console.log('[startEngineer] Set currentThreadId:', threadId)
     
     // Add engineer agent if not exists
     set((state) => {
@@ -463,9 +461,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }],
       logs: [],
     })
-    
-    console.log('[startEngineer] Created placeholder message:', assistantMessageId)
-    console.log('[startEngineer] Messages after set:', get().messages.length)
 
     try {
       const apiKeys = getStoredApiKeys()
@@ -505,26 +500,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6))
-                console.log('[SSE] Received:', data.type, data.type === 'text' ? `"${data.content?.slice(0, 50)}..."` : '')
                 
                 if (data.type === 'text') {
                   // Accumulate text content
                   fullContent += data.content || ''
-                  console.log('[SSE] Text content now:', fullContent.length, 'chars')
-                  console.log('[SSE] assistantMessageId:', assistantMessageId)
-                  console.log('[SSE] Current messages count:', get().messages.length)
-                  set((state) => {
-                    console.log('[SSE] Updating message, state has', state.messages.length, 'messages')
-                    const found = state.messages.find(m => m.id === assistantMessageId)
-                    console.log('[SSE] Found message to update:', !!found)
-                    return {
-                      messages: state.messages.map((m) => 
-                        m.id === assistantMessageId 
-                          ? { ...m, content: fullContent }
-                          : m
-                      )
-                    }
-                  })
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { ...m, content: fullContent }
+                        : m
+                    )
+                  }))
                 } else if (data.type === 'tool-call') {
                   // Tool call started
                   const toolLog: ToolCallLog = {
