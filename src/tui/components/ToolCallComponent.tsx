@@ -13,13 +13,13 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     const status = props.toolCall.status
     switch (status) {
       case "calling":
-        return { color: "#ffff00", text: "calling...", icon: "⏳" }
+        return { color: "#ffff00", text: "calling...", icon: "⏳", pulse: true }
       case "complete":
-        return { color: "#00ff00", text: "complete", icon: "✅" }
+        return { color: "#00ff00", text: "complete", icon: "✅", pulse: false }
       case "error":
-        return { color: "#ff0000", text: "error", icon: "❌" }
+        return { color: "#ff0000", text: "error", icon: "❌", pulse: false }
       default:
-        return { color: "#666", text: "unknown", icon: "❓" }
+        return { color: "#666", text: "unknown", icon: "❓", pulse: false }
     }
   })
   
@@ -52,15 +52,15 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     const hasOutput = props.toolCall.output !== undefined && props.toolCall.output !== null
     const hasError = props.toolCall.error !== undefined
     
-    // Auto-expand logic
+    // Auto-expand logic - expand errors immediately, keep others collapsed by default
     let shouldAutoExpand = false
     if (hasError) {
       shouldAutoExpand = true
     } else {
-      // Auto-expand if input/output is short
+      // Auto-expand if input/output is very short (less than 100 chars total)
       const inputStr = hasInput ? formatJson()(props.toolCall.input) : ""
       const outputStr = hasOutput ? formatJson()(props.toolCall.output) : ""
-      shouldAutoExpand = (inputStr.length + outputStr.length) < 200
+      shouldAutoExpand = (inputStr.length + outputStr.length) < 100
     }
     
     return { hasInput, hasOutput, hasError, shouldAutoExpand }
@@ -80,102 +80,130 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     setExpanded(!expanded())
   }
   
-  // Enhanced border color logic
+  // Enhanced border color logic with better visual distinction
   const borderColor = createMemo(() => {
-    if (props.toolCall.status === "error") return "#ff0000"
-    if (props.toolCall.status === "complete") return "#00aa00"
+    if (props.toolCall.status === "error") return "#ff4444"
+    if (props.toolCall.status === "complete") return "#44ff44"
     if (props.toolCall.status === "calling") return "#ffaa00"
-    return "#444"
+    return "#555"
   })
   
   // Enhanced background color for better visual distinction
   const backgroundColor = createMemo(() => {
-    if (props.toolCall.status === "error") return "#330000"
-    if (props.toolCall.status === "calling") return "#332200"
+    if (props.toolCall.status === "error") return "#2a1010"
+    if (props.toolCall.status === "calling") return "#2a2010"
+    if (props.toolCall.status === "complete") return "#102a10"
     return "#1a1a1a"
+  })
+  
+  // Tool name with better formatting
+  const displayName = createMemo(() => {
+    const name = props.toolCall.name
+    // Convert camelCase to readable format
+    return name.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())
   })
   
   return (
     <box 
       border 
       borderColor={borderColor()} 
-      paddingLeft={1} 
-      paddingRight={1} 
-      paddingTop={0} 
-      paddingBottom={0}
+      paddingLeft={2} 
+      paddingRight={2} 
+      paddingTop={1} 
+      paddingBottom={1}
       marginTop={1}
       marginBottom={1}
       backgroundColor={backgroundColor()}
+      borderStyle="round"
     >
-      {/* Tool header - always visible */}
+      {/* Tool header - always visible with enhanced styling */}
       <box 
-        paddingTop={1} 
-        paddingBottom={1}
+        paddingBottom={contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError ? 1 : 0}
         onClick={toggleExpanded}
         cursor="pointer"
       >
         <text>
+          {/* Tool icon with better visual hierarchy */}
           <span style={{ fg: "#888" }}>🔧 </span>
-          <span style={{ fg: "#fff", bold: true }}>{props.toolCall.name}</span>
-          <span style={{ fg: "#666" }}> - </span>
-          <span style={{ fg: statusInfo().color }}>
-            {statusInfo().icon} {statusInfo().text}
-          </span>
+          <span style={{ fg: "#fff", bold: true }}>{displayName()}</span>
+          <span style={{ fg: "#666" }}> • </span>
+          
+          {/* Status with enhanced visual feedback */}
+          <Show 
+            when={statusInfo().pulse}
+            fallback={
+              <span style={{ fg: statusInfo().color }}>
+                {statusInfo().icon} {statusInfo().text}
+              </span>
+            }
+          >
+            <span style={{ fg: statusInfo().color, blink: true }}>
+              {statusInfo().icon} {statusInfo().text}
+            </span>
+          </Show>
+          
+          {/* Expand/collapse indicator */}
           <Show when={contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError}>
             <span style={{ fg: "#666" }}> {expanded() ? "▼" : "▶"}</span>
           </Show>
         </text>
       </box>
       
-      {/* Expandable details */}
+      {/* Expandable details with improved layout */}
       <Show when={expanded() && (contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError)}>
-        <box flexDirection="column" paddingBottom={1}>
-          {/* Input section */}
+        <box flexDirection="column">
+          {/* Input section with better formatting */}
           <Show when={contentInfo().hasInput}>
             <box paddingTop={1}>
-              <text style={{ fg: "#888", bold: true }}>Input:</text>
+              <text style={{ fg: "#aaa", bold: true }}>📥 Input:</text>
             </box>
             <box 
               border={["left"]} 
-              borderColor="#333" 
-              paddingLeft={1} 
+              borderColor="#444" 
+              paddingLeft={2} 
               marginLeft={1}
+              marginTop={1}
+              backgroundColor="#0f0f0f"
             >
-              <text style={{ fg: "#ccc" }}>
+              <text style={{ fg: "#ddd" }}>
                 {formatJson()(props.toolCall.input)}
               </text>
             </box>
           </Show>
           
-          {/* Output section */}
+          {/* Output section with better formatting */}
           <Show when={contentInfo().hasOutput}>
-            <box paddingTop={1}>
-              <text style={{ fg: "#888", bold: true }}>Output:</text>
+            <box paddingTop={contentInfo().hasInput ? 2 : 1}>
+              <text style={{ fg: "#aaa", bold: true }}>📤 Output:</text>
             </box>
             <box 
               border={["left"]} 
-              borderColor="#333" 
-              paddingLeft={1} 
+              borderColor="#444" 
+              paddingLeft={2} 
               marginLeft={1}
+              marginTop={1}
+              backgroundColor="#0f0f0f"
             >
-              <text style={{ fg: "#ccc" }}>
+              <text style={{ fg: "#ddd" }}>
                 {formatJson()(props.toolCall.output)}
               </text>
             </box>
           </Show>
           
-          {/* Error section */}
+          {/* Error section with enhanced visibility */}
           <Show when={contentInfo().hasError}>
-            <box paddingTop={1}>
-              <text style={{ fg: "#ff0000", bold: true }}>Error:</text>
+            <box paddingTop={(contentInfo().hasInput || contentInfo().hasOutput) ? 2 : 1}>
+              <text style={{ fg: "#ff6666", bold: true }}>❌ Error:</text>
             </box>
             <box 
               border={["left"]} 
-              borderColor="#ff0000" 
-              paddingLeft={1} 
+              borderColor="#ff4444" 
+              paddingLeft={2} 
               marginLeft={1}
+              marginTop={1}
+              backgroundColor="#2a0a0a"
             >
-              <text style={{ fg: "#ff8888" }}>
+              <text style={{ fg: "#ffaaaa" }}>
                 {props.toolCall.error}
               </text>
             </box>

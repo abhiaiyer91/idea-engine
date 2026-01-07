@@ -69,22 +69,24 @@ export function ChatPanel(props: ChatPanelProps) {
                   </box>
                 </Show>
                 
-                {/* Tool calls - enhanced visual separation */}
+                {/* Tool calls - enhanced visual separation and handling */}
                 <Show when={message.toolCalls && message.toolCalls.length > 0}>
                   <box flexDirection="column" paddingLeft={1} marginTop={1}>
-                    {/* Optional: Add a subtle separator for multiple tool calls */}
+                    {/* Header for multiple tool calls */}
                     <Show when={message.toolCalls!.length > 1}>
-                      <box paddingBottom={1}>
-                        <text style={{ fg: "#666", italic: true }}>
-                          {message.toolCalls!.length} tool calls:
+                      <box paddingBottom={1} marginBottom={1} border={["bottom"]} borderColor="#333">
+                        <text style={{ fg: "#888", italic: true }}>
+                          🔧 {message.toolCalls!.length} tool calls:
                         </text>
                       </box>
                     </Show>
+                    
+                    {/* Individual tool calls */}
                     <For each={message.toolCalls}>
                       {(toolCall, index) => (
                         <box>
                           <ToolCallComponent toolCall={toolCall} />
-                          {/* Add subtle spacing between multiple tool calls */}
+                          {/* Add spacing between multiple tool calls */}
                           <Show when={index() < message.toolCalls!.length - 1}>
                             <box height={1} />
                           </Show>
@@ -93,6 +95,9 @@ export function ChatPanel(props: ChatPanelProps) {
                     </For>
                   </box>
                 </Show>
+                
+                {/* Add spacing between messages */}
+                <box height={1} />
               </box>
             )}
           </For>

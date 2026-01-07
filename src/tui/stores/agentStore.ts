@@ -230,6 +230,33 @@ export function useAgentStore() {
     )
   }
 
+  // Enhanced method to add tool calls to a message in real-time
+  const addToolCallToMessage = (messageId: string, toolCall: ToolCall) => {
+    setMessages(
+      messages().map((m) => {
+        if (m.id === messageId) {
+          const existingToolCalls = m.toolCalls || []
+          // Check if tool call already exists (by id)
+          const existingIndex = existingToolCalls.findIndex(tc => tc.id === toolCall.id)
+          
+          let updatedToolCalls: ToolCall[]
+          if (existingIndex >= 0) {
+            // Update existing tool call
+            updatedToolCalls = existingToolCalls.map((tc, index) => 
+              index === existingIndex ? toolCall : tc
+            )
+          } else {
+            // Add new tool call
+            updatedToolCalls = [...existingToolCalls, toolCall]
+          }
+          
+          return { ...m, toolCalls: updatedToolCalls }
+        }
+        return m
+      })
+    )
+  }
+
   const selectThread = async (threadId: string) => {
     setCurrentThreadId(threadId)
     await loadMessagesForThread(threadId)
@@ -300,11 +327,52 @@ export function useAgentStore() {
 
       const response = await getVisionary().stream(userMessage, streamOptions)
 
-      // Stream text chunks and update the message
+      // Enhanced streaming with tool call support
       let fullContent = ""
+      const toolCallsMap = new Map<string, ToolCall>()
+
+      // Stream text chunks and tool calls
       for await (const chunk of response.textStream) {
         fullContent += chunk
         updateMessageContent(assistantMessageId, fullContent)
+      }
+
+      // Handle tool calls from the full stream
+      if (response.fullStream) {
+        try {
+          for await (const streamPart of response.fullStream) {
+            if (streamPart.type === 'tool-call' || streamPart.type === 'tool-invocation') {
+              const toolCall: ToolCall = {
+                id: streamPart.id || crypto.randomUUID(),
+                name: streamPart.toolName || streamPart.name || 'unknown',
+                status: 'calling',
+                input: streamPart.args || streamPart.input || {},
+              }
+              
+              toolCallsMap.set(toolCall.id, toolCall)
+              addToolCallToMessage(assistantMessageId, toolCall)
+              logger.info(`Tool call started: ${toolCall.name}`)
+            }
+            else if (streamPart.type === 'tool-result') {
+              const toolCallId = streamPart.toolCallId || streamPart.id
+              if (toolCallId && toolCallsMap.has(toolCallId)) {
+                const toolCall = toolCallsMap.get(toolCallId)!
+                const updatedToolCall: ToolCall = {
+                  ...toolCall,
+                  status: streamPart.isError ? 'error' : 'complete',
+                  output: streamPart.result,
+                  error: streamPart.isError ? streamPart.result : undefined
+                }
+                
+                toolCallsMap.set(toolCallId, updatedToolCall)
+                addToolCallToMessage(assistantMessageId, updatedToolCall)
+                logger.info(`Tool call ${updatedToolCall.status}: ${toolCall.name}`)
+              }
+            }
+          }
+        } catch (streamError: any) {
+          logger.warn(`Error processing tool call stream: ${streamError.message}`)
+        }
       }
 
       // If no text came through, show a default message
@@ -342,6 +410,7 @@ export function useAgentStore() {
     currentThreadId,
     updateAgentStatus,
     updateToolCallStatus,
+    addToolCallToMessage,
     sendToVisionary,
     createNewThread,
     selectThread,
