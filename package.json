@@ -30,13 +30,17 @@
     "@mastra/pg": "^1.0.0-beta.11",
     "@opentui/core": "^0.1.69",
     "@opentui/solid": "^0.1.69",
+    "@types/marked": "^5.0.2",
     "drizzle-orm": "^0.45.1",
+    "highlight.js": "^11.11.1",
     "hono": "^4.11.3",
+    "marked": "^17.0.1",
     "postgres": "^3.4.8",
     "solid-js": "^1.9.9",
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@types/highlight.js": "^9.12.4",
     "@types/node": "^25.0.3",
     "drizzle-kit": "^0.31.8",
     "mastra": "^1.0.0-beta.12",
