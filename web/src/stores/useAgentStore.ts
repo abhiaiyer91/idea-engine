@@ -81,6 +81,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   setCurrentThread: (threadId: string | null) => {
+    // Don't reload messages if we're currently streaming (e.g., engineer just started)
+    const { isStreaming } = get()
+    
     set({ currentThreadId: threadId })
     if (threadId) {
       // Determine agent from thread ID
@@ -90,7 +93,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       } else {
         set({ currentAgentId: 'pv-1' })
       }
-      get().loadMessages(threadId)
+      // Only load messages if not streaming - otherwise we'll wipe out in-progress messages
+      if (!isStreaming) {
+        get().loadMessages(threadId)
+      }
     } else {
       set({ messages: [] })
     }

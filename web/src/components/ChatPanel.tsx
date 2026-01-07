@@ -51,20 +51,7 @@ export function ChatPanel() {
   const agentSubtitle = isEngineer 
     ? `Working on Issue #${issueNumber || '?'}` 
     : 'Describe your ideas'
-  const loadMessages = useAgentStore(state => state.loadMessages)
-
-  // Poll for engineer message updates while working
-  useEffect(() => {
-    if (!isEngineer || !currentThreadId) return
-    
-    // Poll every 2 seconds while engineer is working
-    if (currentAgent?.status === 'working') {
-      const interval = setInterval(() => {
-        loadMessages(currentThreadId)
-      }, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [isEngineer, currentThreadId, currentAgent?.status, loadMessages])
+  // Note: We use SSE streaming for real-time updates, no polling needed
 
   // Debug: log when messages change
   useEffect(() => {
