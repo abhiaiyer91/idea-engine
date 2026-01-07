@@ -2,12 +2,16 @@ import { useState, useRef, useEffect } from 'react'
 import { useAgentStore } from '../stores/useAgentStore'
 import type { ChatMessage } from '../types'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { ToolCallsList } from './ToolCallDisplay'
 
 function Message({ message, agentType }: { message: ChatMessage; agentType: 'visionary' | 'engineer' }) {
   const isUser = message.role === 'user'
   const agentLabel = agentType === 'engineer' ? 'Engineer' : 'Visionary'
   const agentColor = agentType === 'engineer' ? 'text-orange-500' : 'text-blue-500'
   const borderColor = agentType === 'engineer' ? 'border-orange-500' : 'border-blue-500'
+  
+  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0
+  const hasContent = message.content && message.content.trim().length > 0
   
   return (
     <div className={`px-4 py-3 border-l-2 ${
@@ -16,13 +20,20 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
       <div className={`font-bold mb-2 ${isUser ? 'text-green-500' : agentColor}`}>
         {isUser ? 'You' : agentLabel}
       </div>
-      {message.content ? (
+      
+      {/* Show tool calls for assistant messages */}
+      {!isUser && hasToolCalls && (
+        <ToolCallsList toolCalls={message.toolCalls!} />
+      )}
+      
+      {/* Show content */}
+      {hasContent ? (
         <div className="space-y-0">
           <MarkdownRenderer content={message.content} />
         </div>
-      ) : (
+      ) : !hasToolCalls ? (
         <span className="text-yellow-400 animate-pulse">Thinking...</span>
-      )}
+      ) : null}
     </div>
   )
 }

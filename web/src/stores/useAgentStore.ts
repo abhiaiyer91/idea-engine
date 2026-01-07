@@ -361,6 +361,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                       timestamp: new Date(),
                     }
                     toolCalls.set(data.toolCallId, toolLog)
+                    // Add tool call to message
+                    set((state) => ({
+                      messages: state.messages.map((m) => 
+                        m.id === assistantMessageId 
+                          ? { 
+                              ...m, 
+                              toolCalls: [
+                                ...(m.toolCalls || []),
+                                {
+                                  id: data.toolCallId,
+                                  name: data.toolName,
+                                  status: 'calling' as const,
+                                  input: data.args,
+                                }
+                              ]
+                            }
+                          : m
+                      )
+                    }))
                     get().addLog({ 
                       type: 'tool-call', 
                       message: `Calling ${data.toolName}`,
@@ -371,7 +390,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                     if (existing) {
                       existing.status = 'complete'
                       existing.result = data.result
+                      // Update tool call status in message
                       set((state) => ({
+                        messages: state.messages.map((m) => 
+                          m.id === assistantMessageId 
+                            ? { 
+                                ...m, 
+                                toolCalls: (m.toolCalls || []).map(tc =>
+                                  tc.id === data.toolCallId
+                                    ? { ...tc, status: 'complete' as const, output: data.result }
+                                    : tc
+                                )
+                              }
+                            : m
+                        ),
                         logs: state.logs.map(log => 
                           log.toolCall?.id === data.toolCallId
                             ? { ...log, toolCall: { ...existing } }
@@ -566,6 +598,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                     timestamp: new Date(),
                   }
                   toolCalls.set(data.toolCallId, toolLog)
+                  // Add tool call to message
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { 
+                            ...m, 
+                            toolCalls: [
+                              ...(m.toolCalls || []),
+                              {
+                                id: data.toolCallId,
+                                name: data.toolName,
+                                status: 'calling' as const,
+                                input: data.args,
+                              }
+                            ]
+                          }
+                        : m
+                    )
+                  }))
                   get().addLog({ 
                     type: 'tool-call', 
                     message: `Calling ${data.toolName}`,
@@ -577,8 +628,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                   if (existing) {
                     existing.status = 'complete'
                     existing.result = data.result
-                    // Update the log entry
+                    // Update tool call status in message
                     set((state) => ({
+                      messages: state.messages.map((m) => 
+                        m.id === assistantMessageId 
+                          ? { 
+                              ...m, 
+                              toolCalls: (m.toolCalls || []).map(tc =>
+                                tc.id === data.toolCallId
+                                  ? { ...tc, status: 'complete' as const, output: data.result }
+                                  : tc
+                              )
+                            }
+                          : m
+                      ),
                       logs: state.logs.map(log => 
                         log.toolCall?.id === data.toolCallId
                           ? { ...log, toolCall: { ...existing } }
