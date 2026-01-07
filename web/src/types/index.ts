@@ -31,12 +31,18 @@ export type ToolCall = {
   error?: string
 }
 
+// Message parts for interleaved content
+export type MessagePart = 
+  | { type: 'text'; content: string }
+  | { type: 'tool-call'; toolCall: ToolCall }
+
 export type ChatMessage = {
   id: string
   role: "user" | "assistant"
-  content: string
+  content: string  // Legacy: full text content for simple cases
   timestamp: Date
-  toolCalls?: ToolCall[]
+  toolCalls?: ToolCall[]  // Legacy: all tool calls
+  parts?: MessagePart[]  // New: ordered parts for interleaved rendering
 }
 
 export type GitHubIssue = {

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAgentStore } from '../stores/useAgentStore'
 import type { ChatMessage } from '../types'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { ToolCallsList } from './ToolCallDisplay'
+import { ToolCallDisplay } from './ToolCallDisplay'
 
 function Message({ message, agentType }: { message: ChatMessage; agentType: 'visionary' | 'engineer' }) {
   const isUser = message.role === 'user'
@@ -10,7 +10,8 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
   const agentColor = agentType === 'engineer' ? 'text-orange-500' : 'text-blue-500'
   const borderColor = agentType === 'engineer' ? 'border-orange-500' : 'border-blue-500'
   
-  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0
+  // Use parts if available, otherwise fall back to content
+  const hasParts = message.parts && message.parts.length > 0
   const hasContent = message.content && message.content.trim().length > 0
   
   return (
@@ -21,17 +22,27 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
         {isUser ? 'You' : agentLabel}
       </div>
       
-      {/* Show tool calls for assistant messages */}
-      {!isUser && hasToolCalls && (
-        <ToolCallsList toolCalls={message.toolCalls!} />
-      )}
-      
-      {/* Show content */}
-      {hasContent ? (
+      {/* Render parts in order for interleaved content */}
+      {!isUser && hasParts ? (
+        <div className="space-y-2">
+          {message.parts!.map((part, index) => {
+            if (part.type === 'text') {
+              return part.content.trim() ? (
+                <MarkdownRenderer key={index} content={part.content} />
+              ) : null
+            } else if (part.type === 'tool-call') {
+              return (
+                <ToolCallDisplay key={part.toolCall.id} toolCall={part.toolCall} />
+              )
+            }
+            return null
+          })}
+        </div>
+      ) : hasContent ? (
         <div className="space-y-0">
           <MarkdownRenderer content={message.content} />
         </div>
-      ) : !hasToolCalls ? (
+      ) : !isUser ? (
         <span className="text-yellow-400 animate-pulse">Thinking...</span>
       ) : null}
     </div>

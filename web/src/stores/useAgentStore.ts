@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Agent, Thread, ChatMessage, GitHubIssue } from '../types'
+import type { Agent, Thread, ChatMessage, GitHubIssue, MessagePart } from '../types'
 import { getStoredApiKeys } from '../components/SettingsModal'
 
 const API_BASE = '/api'
@@ -326,13 +326,39 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         role: 'assistant' as const,
         content: '',
         timestamp: new Date(),
+        parts: [],
       }],
       isStreaming: true,
     }))
 
-    // Track state for this stream
-    let fullContent = ''
-    const toolCalls = new Map<string, ToolCallLog>()
+    // Track state for this stream - parts maintains order
+    let currentTextBuffer = ''
+    const parts: MessagePart[] = []
+    const toolCallsMap = new Map<string, ToolCallLog>()
+
+    // Helper to flush text buffer to parts
+    const flushTextBuffer = () => {
+      if (currentTextBuffer.trim()) {
+        parts.push({ type: 'text', content: currentTextBuffer })
+        currentTextBuffer = ''
+      }
+    }
+
+    // Helper to update message with current state
+    const updateMessage = () => {
+      const fullContent = parts
+        .filter(p => p.type === 'text')
+        .map(p => (p as { type: 'text'; content: string }).content)
+        .join('')
+      
+      set((state) => ({
+        messages: state.messages.map((m) => 
+          m.id === assistantMessageId 
+            ? { ...m, content: fullContent + currentTextBuffer, parts: [...parts, ...(currentTextBuffer ? [{ type: 'text' as const, content: currentTextBuffer }] : [])] }
+            : m
+        )
+      }))
+    }
 
     try {
       const apiKeys = getStoredApiKeys()
@@ -362,22 +388,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       await parseSSEStream(reader, {
         onText: (text) => {
-          fullContent += text
-          set((state) => ({
-            messages: state.messages.map((m) => 
-              m.id === assistantMessageId ? { ...m, content: fullContent } : m
-            )
-          }))
+          currentTextBuffer += text
+          updateMessage()
         },
         onStepFinish: () => {
-          fullContent += '\n\n'
-          set((state) => ({
-            messages: state.messages.map((m) => 
-              m.id === assistantMessageId ? { ...m, content: fullContent } : m
-            )
-          }))
+          currentTextBuffer += '\n\n'
+          updateMessage()
         },
         onToolCall: ({ id, name, args }) => {
+          // Flush any pending text before the tool call
+          flushTextBuffer()
+          
+          const toolCall = {
+            id,
+            name,
+            status: 'calling' as const,
+            input: args,
+          }
+          parts.push({ type: 'tool-call', toolCall })
+          
           const toolLog: ToolCallLog = {
             id,
             toolName: name,
@@ -385,23 +414,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             args,
             timestamp: new Date(),
           }
-          toolCalls.set(id, toolLog)
+          toolCallsMap.set(id, toolLog)
           
-          set((state) => ({
-            messages: state.messages.map((m) => 
-              m.id === assistantMessageId 
-                ? { 
-                    ...m, 
-                    toolCalls: [...(m.toolCalls || []), {
-                      id,
-                      name,
-                      status: 'calling' as const,
-                      input: args,
-                    }]
-                  }
-                : m
-            )
-          }))
+          updateMessage()
           
           get().addLog({ 
             type: 'tool-call', 
@@ -410,33 +425,35 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           })
         },
         onToolResult: ({ toolCallId, result }) => {
-          const existing = toolCalls.get(toolCallId)
+          // Update the tool call status in parts
+          for (const part of parts) {
+            if (part.type === 'tool-call' && part.toolCall.id === toolCallId) {
+              part.toolCall.status = 'complete'
+              part.toolCall.output = result
+              break
+            }
+          }
+          
+          const existing = toolCallsMap.get(toolCallId)
           if (existing) {
             existing.status = 'complete'
             existing.result = result
-            
-            set((state) => ({
-              messages: state.messages.map((m) => 
-                m.id === assistantMessageId 
-                  ? { 
-                      ...m, 
-                      toolCalls: (m.toolCalls || []).map(tc =>
-                        tc.id === toolCallId
-                          ? { ...tc, status: 'complete' as const, output: result }
-                          : tc
-                      )
-                    }
-                  : m
-              ),
-              logs: state.logs.map(log => 
-                log.toolCall?.id === toolCallId
-                  ? { ...log, toolCall: { ...existing } }
-                  : log
-              )
-            }))
           }
+          
+          updateMessage()
+          
+          set((state) => ({
+            logs: state.logs.map(log => 
+              log.toolCall?.id === toolCallId && existing
+                ? { ...log, toolCall: { ...existing } }
+                : log
+            )
+          }))
         },
         onFinish: () => {
+          // Flush any remaining text
+          flushTextBuffer()
+          updateMessage()
           get().addLog({ type: 'info', message: 'Completed' })
         },
       })
@@ -518,12 +535,38 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         role: 'assistant' as const,
         content: '',
         timestamp: new Date(),
+        parts: [],
       }],
     })
 
-    // Track state for this stream
-    let fullContent = ''
-    const toolCalls = new Map<string, ToolCallLog>()
+    // Track state for this stream - parts maintains order
+    let currentTextBuffer = ''
+    const parts: MessagePart[] = []
+    const toolCallsMap = new Map<string, ToolCallLog>()
+
+    // Helper to flush text buffer to parts
+    const flushTextBuffer = () => {
+      if (currentTextBuffer.trim()) {
+        parts.push({ type: 'text', content: currentTextBuffer })
+        currentTextBuffer = ''
+      }
+    }
+
+    // Helper to update message with current state
+    const updateMessage = () => {
+      const fullContent = parts
+        .filter(p => p.type === 'text')
+        .map(p => (p as { type: 'text'; content: string }).content)
+        .join('')
+      
+      set((state) => ({
+        messages: state.messages.map((m) => 
+          m.id === assistantMessageId 
+            ? { ...m, content: fullContent + currentTextBuffer, parts: [...parts, ...(currentTextBuffer ? [{ type: 'text' as const, content: currentTextBuffer }] : [])] }
+            : m
+        )
+      }))
+    }
 
     try {
       const apiKeys = getStoredApiKeys()
@@ -548,22 +591,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       await parseSSEStream(reader, {
         onText: (text) => {
-          fullContent += text
-          set((state) => ({
-            messages: state.messages.map((m) => 
-              m.id === assistantMessageId ? { ...m, content: fullContent } : m
-            )
-          }))
+          currentTextBuffer += text
+          updateMessage()
         },
         onStepFinish: () => {
-          fullContent += '\n\n'
-          set((state) => ({
-            messages: state.messages.map((m) => 
-              m.id === assistantMessageId ? { ...m, content: fullContent } : m
-            )
-          }))
+          currentTextBuffer += '\n\n'
+          updateMessage()
         },
         onToolCall: ({ id, name, args }) => {
+          // Flush any pending text before the tool call
+          flushTextBuffer()
+          
+          const toolCall = {
+            id,
+            name,
+            status: 'calling' as const,
+            input: args,
+          }
+          parts.push({ type: 'tool-call', toolCall })
+          
           const toolLog: ToolCallLog = {
             id,
             toolName: name,
@@ -571,23 +617,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             args,
             timestamp: new Date(),
           }
-          toolCalls.set(id, toolLog)
+          toolCallsMap.set(id, toolLog)
           
-          set((state) => ({
-            messages: state.messages.map((m) => 
-              m.id === assistantMessageId 
-                ? { 
-                    ...m, 
-                    toolCalls: [...(m.toolCalls || []), {
-                      id,
-                      name,
-                      status: 'calling' as const,
-                      input: args,
-                    }]
-                  }
-                : m
-            )
-          }))
+          updateMessage()
           
           get().addLog({ 
             type: 'tool-call', 
@@ -596,33 +628,35 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           })
         },
         onToolResult: ({ toolCallId, result }) => {
-          const existing = toolCalls.get(toolCallId)
+          // Update the tool call status in parts
+          for (const part of parts) {
+            if (part.type === 'tool-call' && part.toolCall.id === toolCallId) {
+              part.toolCall.status = 'complete'
+              part.toolCall.output = result
+              break
+            }
+          }
+          
+          const existing = toolCallsMap.get(toolCallId)
           if (existing) {
             existing.status = 'complete'
             existing.result = result
-            
-            set((state) => ({
-              messages: state.messages.map((m) => 
-                m.id === assistantMessageId 
-                  ? { 
-                      ...m, 
-                      toolCalls: (m.toolCalls || []).map(tc =>
-                        tc.id === toolCallId
-                          ? { ...tc, status: 'complete' as const, output: result }
-                          : tc
-                      )
-                    }
-                  : m
-              ),
-              logs: state.logs.map(log => 
-                log.toolCall?.id === toolCallId
-                  ? { ...log, toolCall: { ...existing } }
-                  : log
-              )
-            }))
           }
+          
+          updateMessage()
+          
+          set((state) => ({
+            logs: state.logs.map(log => 
+              log.toolCall?.id === toolCallId && existing
+                ? { ...log, toolCall: { ...existing } }
+                : log
+            )
+          }))
         },
         onFinish: () => {
+          // Flush any remaining text
+          flushTextBuffer()
+          updateMessage()
           get().addLog({ type: 'info', message: 'Engineer completed' })
         },
       })
