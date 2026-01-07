@@ -102,6 +102,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   deleteThread: async (threadId: string) => {
     try {
+      // If this is an engineer thread, clean up the worktree first
+      if (threadId.startsWith('engineer-')) {
+        const issueNumber = parseInt(threadId.replace('engineer-', ''), 10)
+        try {
+          await fetch(`${API_BASE}/worktree/${issueNumber}`, {
+            method: 'DELETE',
+          })
+          console.log(`[deleteThread] Cleaned up worktree for issue #${issueNumber}`)
+        } catch (e) {
+          console.warn(`[deleteThread] Failed to cleanup worktree for issue #${issueNumber}:`, e)
+          // Continue with thread deletion even if worktree cleanup fails
+        }
+      }
+      
       const res = await fetch(`${API_BASE}/threads/${threadId}`, {
         method: 'DELETE',
       })
@@ -110,13 +124,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         throw new Error('Failed to delete thread')
       }
       
-      // Remove from local state
+      // Remove from local state and also remove the engineer agent if applicable
       set((state) => {
         const isCurrentThread = state.currentThreadId === threadId
+        const issueNumber = threadId.startsWith('engineer-') 
+          ? parseInt(threadId.replace('engineer-', ''), 10) 
+          : null
+        
         return {
           threads: state.threads.filter(t => t.id !== threadId),
           currentThreadId: isCurrentThread ? null : state.currentThreadId,
           messages: isCurrentThread ? [] : state.messages,
+          // Remove the engineer agent associated with this thread
+          agents: issueNumber 
+            ? state.agents.filter(a => a.id !== `eng-${issueNumber}`)
+            : state.agents,
         }
       })
     } catch (error) {
@@ -424,7 +446,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
     })
     
-    // Add placeholder message
+    // Add placeholder message and clear logs in single update
     const assistantMessageId = crypto.randomUUID()
     set({
       messages: [{
@@ -432,14 +454,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         role: 'assistant',
         content: '',
         timestamp: new Date(),
-      }]
+      }],
+      logs: [],
     })
+    
+    console.log('[startEngineer] Created placeholder message:', assistantMessageId)
+    console.log('[startEngineer] Messages after set:', get().messages.length)
 
     try {
       const apiKeys = getStoredApiKeys()
       
-      // Clear logs for new engineer session
-      set({ logs: [] })
       get().addLog({ type: 'info', message: `Starting engineer for issue #${issueNumber}` })
       
       const res = await fetch(`${API_BASE}/engineer/start`, {

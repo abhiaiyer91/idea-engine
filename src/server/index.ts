@@ -92,6 +92,37 @@ app.delete('/api/threads/:threadId', async (c) => {
   }
 })
 
+// ============ Worktree API ============
+
+// Delete a worktree for an issue
+app.delete('/api/worktree/:issueNumber', async (c) => {
+  try {
+    const issueNumber = parseInt(c.req.param('issueNumber'), 10)
+    
+    if (isNaN(issueNumber)) {
+      return c.json({ error: 'Invalid issue number' }, 400)
+    }
+    
+    const worktreePath = `.worktrees/issue-${issueNumber}`
+    
+    // Check if worktree exists and remove it
+    try {
+      await execFileAsync('git', ['worktree', 'remove', worktreePath, '--force'])
+      console.log(`[Worktree] Removed worktree for issue #${issueNumber}`)
+      return c.json({ success: true, removed: true })
+    } catch (error: any) {
+      // Worktree might not exist, that's ok
+      if (error.message?.includes('is not a working tree')) {
+        return c.json({ success: true, removed: false })
+      }
+      throw error
+    }
+  } catch (error: any) {
+    console.error('Failed to delete worktree:', error)
+    return c.json({ error: error.message || 'Failed to delete worktree' }, 500)
+  }
+})
+
 // ============ GitHub Issues API ============
 
 // List GitHub issues
@@ -349,11 +380,14 @@ Do NOT stop until you have a PR URL. Begin now.`
         console.log('[Stream] Chunk type:', chunk.type, 'payload keys:', Object.keys(payload))
         
         if (chunk.type === 'text-delta') {
-          // Text chunk
-          const text = payload.textDelta || payload.text || ''
+          // Text chunk - try multiple possible locations for text
+          const text = payload.textDelta || payload.text || (chunk as any).textDelta || (chunk as any).text || ''
           if (text) {
             textBuffer += text
+            console.log('[Stream] Sending text chunk:', text.length, 'chars')
             await streamWriter.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+          } else {
+            console.log('[Stream] text-delta but no text found, payload:', JSON.stringify(payload).slice(0, 200))
           }
         } else if (chunk.type === 'tool-call') {
           // Tool call started
