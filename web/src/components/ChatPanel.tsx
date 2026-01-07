@@ -94,7 +94,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full">
+    <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-[#333] flex items-center gap-2">
         <span className={isEngineer ? 'text-orange-500' : 'text-green-500'}>●</span>
@@ -103,7 +103,7 @@ export function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="text-gray-500">
             {isEngineer 

@@ -135,18 +135,17 @@ function IssueItem({ issue, hasThread, isWorking, onStart, onViewThread }: {
 }
 
 export function Sidebar() {
-  const { 
-    agents,
-    threads, 
-    currentThreadId,
-    setCurrentThread,
-    createNewThread,
-    deleteThread,
-    issues,
-    issuesLoading,
-    loadIssues,
-    startEngineer,
-  } = useAgentStore()
+  // Use individual selectors to prevent unnecessary re-renders
+  const agents = useAgentStore(state => state.agents)
+  const threads = useAgentStore(state => state.threads)
+  const currentThreadId = useAgentStore(state => state.currentThreadId)
+  const setCurrentThread = useAgentStore(state => state.setCurrentThread)
+  const createNewThread = useAgentStore(state => state.createNewThread)
+  const deleteThread = useAgentStore(state => state.deleteThread)
+  const issues = useAgentStore(state => state.issues)
+  const issuesLoading = useAgentStore(state => state.issuesLoading)
+  const loadIssues = useAgentStore(state => state.loadIssues)
+  const startEngineer = useAgentStore(state => state.startEngineer)
 
   // Load issues on mount
   useEffect(() => {
@@ -168,7 +167,10 @@ export function Sidebar() {
   )
 
   return (
-    <div className="w-80 border-r border-[#333] flex flex-col h-full bg-[#111]">
+    <div 
+      className="border-r border-[#333] flex flex-col h-full bg-[#111]"
+      style={{ width: '320px', minWidth: '320px', flexShrink: 0 }}
+    >
       {/* VISIONARY Section */}
       <div className="border-b border-[#333]">
         <div className="px-3 py-2 flex items-center justify-between">

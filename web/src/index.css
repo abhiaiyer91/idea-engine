@@ -52,6 +52,9 @@ body {
 .markdown-content {
   line-height: 1.6;
   color: var(--text-primary);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  max-width: 100%;
 }
 
 /* Headers */
@@ -180,6 +183,13 @@ body {
   padding: 1rem;
   overflow-x: auto;
   background-color: var(--bg-secondary);
+  max-width: 100%;
+}
+
+/* Ensure pre elements don't break layout */
+.markdown-content pre {
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .code-block-content code {
