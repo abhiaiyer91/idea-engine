@@ -79,6 +79,7 @@ export function ChatPanel() {
   // Use individual selectors for better reactivity
   const messages = useAgentStore(state => state.messages)
   const sendMessage = useAgentStore(state => state.sendMessage)
+  const abortStream = useAgentStore(state => state.abortStream)
   const isStreaming = useAgentStore(state => state.isStreaming)
   const currentThreadId = useAgentStore(state => state.currentThreadId)
   const currentAgentId = useAgentStore(state => state.currentAgentId)
@@ -171,13 +172,22 @@ export function ChatPanel() {
             rows={3}
             className="w-full bg-transparent text-white px-3 py-2 resize-none focus:outline-none placeholder-gray-600 disabled:opacity-50"
           />
-          <div className="flex justify-end px-2 pb-2">
+          <div className="flex justify-end gap-2 px-2 pb-2">
+            {isStreaming && (
+              <button
+                type="button"
+                onClick={abortStream}
+                className="px-4 py-1 bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
+              >
+                Stop
+              </button>
+            )}
             <button
               type="submit"
               disabled={!input.trim() || isStreaming}
               className="px-4 py-1 bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded transition-colors"
             >
-              {isStreaming ? 'Sending...' : 'Send'}
+              {isStreaming ? 'Working...' : 'Send'}
             </button>
           </div>
         </div>

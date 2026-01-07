@@ -23,6 +23,9 @@ export type LogEntry = {
   toolCall?: ToolCallLog
 }
 
+// Store the current abort controller outside of zustand state (not serializable)
+let currentAbortController: AbortController | null = null
+
 interface AgentStore {
   // Agents
   agents: Agent[]
@@ -52,6 +55,7 @@ interface AgentStore {
   loadMessages: (threadId: string) => Promise<void>
   deleteThread: (threadId: string) => Promise<void>
   sendMessage: (content: string) => Promise<void>
+  abortStream: () => void
   
   // Issue actions
   loadIssues: () => Promise<void>
@@ -278,6 +282,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     try {
       const apiKeys = getStoredApiKeys()
       
+      // Create abort controller for this request
+      currentAbortController = new AbortController()
+      
       // Choose endpoint based on agent type
       const endpoint = isEngineer ? `${API_BASE}/engineer/chat` : `${API_BASE}/chat`
       const body = isEngineer 
@@ -288,6 +295,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: currentAbortController.signal,
       })
 
       if (!res.ok) {
@@ -467,10 +475,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       
       get().addLog({ type: 'info', message: `Starting engineer for issue #${issueNumber}` })
       
+      // Create abort controller for this request
+      currentAbortController = new AbortController()
+      
       const res = await fetch(`${API_BASE}/engineer/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ issueNumber, apiKeys }),
+        signal: currentAbortController.signal,
       })
 
       if (!res.ok) {
@@ -581,6 +593,33 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     } finally {
       set({ isStreaming: false })
     }
+  },
+  
+  // Abort the current streaming request
+  abortStream: () => {
+    if (currentAbortController) {
+      currentAbortController.abort()
+      currentAbortController = null
+    }
+    
+    const { currentAgentId } = get()
+    const issueNumber = currentAgentId.startsWith('eng-') 
+      ? parseInt(currentAgentId.replace('eng-', ''), 10) 
+      : null
+    
+    set((state) => ({
+      isStreaming: false,
+      // Mark engineer as idle if we were running one
+      agents: issueNumber 
+        ? state.agents.map(a => 
+            a.id === `eng-${issueNumber}` 
+              ? { ...a, status: 'idle' as const }
+              : a
+          )
+        : state.agents,
+    }))
+    
+    get().addLog({ type: 'info', message: 'Aborted by user' })
   },
   
   // Log actions
