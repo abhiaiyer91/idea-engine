@@ -1,55 +1,7 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useAgentStore } from '../stores/useAgentStore'
 import type { ChatMessage } from '../types'
-
-// Simple markdown-like rendering for headers and code
-function renderContent(content: string) {
-  // Split into lines and process
-  const lines = content.split('\n')
-  const elements: ReactNode[] = []
-  let key = 0
-  
-  for (const line of lines) {
-    if (line.startsWith('## ')) {
-      // H2 header
-      elements.push(
-        <div key={key++} className="text-blue-400 font-bold mt-3 mb-1">
-          {line.slice(3)}
-        </div>
-      )
-    } else if (line.startsWith('# ')) {
-      // H1 header
-      elements.push(
-        <div key={key++} className="text-blue-300 font-bold text-lg mt-3 mb-1">
-          {line.slice(2)}
-        </div>
-      )
-    } else if (line.startsWith('```')) {
-      // Code fence start/end - just skip the fence line
-      continue
-    } else if (line.startsWith('- ')) {
-      // List item
-      elements.push(
-        <div key={key++} className="text-gray-300 ml-4">
-          <span className="text-gray-500 mr-2">•</span>
-          {line.slice(2)}
-        </div>
-      )
-    } else if (line.trim() === '') {
-      // Empty line
-      elements.push(<div key={key++} className="h-2" />)
-    } else {
-      // Regular text
-      elements.push(
-        <div key={key++} className="text-gray-200">
-          {line}
-        </div>
-      )
-    }
-  }
-  
-  return elements
-}
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 function Message({ message, agentType }: { message: ChatMessage; agentType: 'visionary' | 'engineer' }) {
   const isUser = message.role === 'user'
@@ -66,7 +18,7 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
       </div>
       {message.content ? (
         <div className="space-y-0">
-          {renderContent(message.content)}
+          <MarkdownRenderer content={message.content} />
         </div>
       ) : (
         <span className="text-yellow-400 animate-pulse">Thinking...</span>
