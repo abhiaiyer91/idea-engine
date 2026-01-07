@@ -12,46 +12,46 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
   const borderColor = agentType === 'engineer' ? 'border-orange-500' : 'border-blue-500'
   
   return (
-    <div className="space-y-2">
-      {/* Message text */}
+    <div className="space-y-3">
+      {/* Message text - only show if there's actual content */}
       {message.content.trim() !== '' && (
-        <div className={`px-4 py-2 border-l-2 ${
-          isUser ? 'border-green-500' : borderColor
+        <div className={`px-4 py-3 border-l-4 rounded-r-lg ${
+          isUser ? 'border-green-500 bg-green-950/20' : `${borderColor.replace('border-', 'border-')} ${agentType === 'engineer' ? 'bg-orange-950/20' : 'bg-blue-950/20'}`
         }`}>
-          <div className={`font-bold mb-1 ${isUser ? 'text-green-500' : agentColor}`}>
+          <div className={`font-bold mb-2 ${isUser ? 'text-green-400' : agentColor}`}>
             {isUser ? 'You: ' : agentLabel}
           </div>
           {isUser ? (
             // User messages as plain text
-            <div className="text-white whitespace-pre-wrap">{message.content}</div>
+            <div className="text-gray-100 whitespace-pre-wrap">{message.content}</div>
           ) : (
             // Agent messages with markdown rendering
-            <div className="text-white prose prose-invert prose-sm max-w-none">
+            <div className="text-gray-100 prose prose-invert prose-sm max-w-none">
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]}
                 components={{
                   // Custom styling for markdown elements
-                  h1: ({children}) => <h1 className="text-xl font-bold text-white mb-2">{children}</h1>,
+                  h1: ({children}) => <h1 className="text-xl font-bold text-white mb-3">{children}</h1>,
                   h2: ({children}) => <h2 className="text-lg font-bold text-white mb-2">{children}</h2>,
-                  h3: ({children}) => <h3 className="text-base font-bold text-white mb-1">{children}</h3>,
-                  p: ({children}) => <p className="text-white mb-2 last:mb-0">{children}</p>,
+                  h3: ({children}) => <h3 className="text-base font-bold text-white mb-2">{children}</h3>,
+                  p: ({children}) => <p className="text-gray-100 mb-2 last:mb-0">{children}</p>,
                   code: ({children, className}) => {
                     const isInline = !className
                     if (isInline) {
-                      return <code className="bg-gray-800 text-orange-300 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+                      return <code className="bg-gray-800 text-orange-300 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>
                     }
                     return (
-                      <pre className="bg-gray-900 border border-gray-700 rounded p-3 overflow-x-auto my-2">
+                      <pre className="bg-gray-900 border border-gray-700 rounded-lg p-4 overflow-x-auto my-3">
                         <code className="text-gray-300 text-sm font-mono">{children}</code>
                       </pre>
                     )
                   },
-                  pre: ({children}) => <div className="my-2">{children}</div>,
-                  ul: ({children}) => <ul className="list-disc list-inside text-white mb-2 space-y-1">{children}</ul>,
-                  ol: ({children}) => <ol className="list-decimal list-inside text-white mb-2 space-y-1">{children}</ol>,
-                  li: ({children}) => <li className="text-white">{children}</li>,
+                  pre: ({children}) => <div className="my-3">{children}</div>,
+                  ul: ({children}) => <ul className="list-disc list-inside text-gray-100 mb-3 space-y-1 pl-4">{children}</ul>,
+                  ol: ({children}) => <ol className="list-decimal list-inside text-gray-100 mb-3 space-y-1 pl-4">{children}</ol>,
+                  li: ({children}) => <li className="text-gray-100">{children}</li>,
                   blockquote: ({children}) => (
-                    <blockquote className="border-l-4 border-gray-500 pl-4 italic text-gray-300 my-2">
+                    <blockquote className="border-l-4 border-gray-500 pl-4 italic text-gray-300 my-3 bg-gray-800/30 py-2 rounded-r">
                       {children}
                     </blockquote>
                   ),
@@ -61,8 +61,8 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
                     </a>
                   ),
                   table: ({children}) => (
-                    <div className="overflow-x-auto my-2">
-                      <table className="min-w-full border border-gray-700 rounded">
+                    <div className="overflow-x-auto my-3">
+                      <table className="min-w-full border border-gray-700 rounded-lg">
                         {children}
                       </table>
                     </div>
@@ -73,31 +73,29 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
                     </th>
                   ),
                   td: ({children}) => (
-                    <td className="border border-gray-700 px-3 py-2 text-white">
+                    <td className="border border-gray-700 px-3 py-2 text-gray-100">
                       {children}
                     </td>
                   ),
                   strong: ({children}) => <strong className="font-bold text-white">{children}</strong>,
-                  em: ({children}) => <em className="italic text-white">{children}</em>,
+                  em: ({children}) => <em className="italic text-gray-200">{children}</em>,
                 }}
               >
                 {message.content}
               </ReactMarkdown>
             </div>
           )}
-          {message.role === 'assistant' && message.content === '' && (
-            <span className="text-yellow-400 animate-pulse">▊</span>
-          )}
         </div>
       )}
       
-      {/* Tool calls */}
+      {/* Tool calls - enhanced visual separation and handling */}
       {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="ml-4 space-y-2">
+        <div className={`${message.content.trim() !== '' ? 'ml-6' : ''} space-y-2`}>
           {/* Header for multiple tool calls */}
           {message.toolCalls.length > 1 && (
-            <div className="text-gray-400 text-sm font-medium border-b border-gray-700 pb-2 mb-2">
-              🔧 {message.toolCalls.length} tool calls:
+            <div className="text-gray-400 text-sm font-medium border-b border-gray-700 pb-2 mb-3 flex items-center gap-2">
+              <span className="text-lg">🔧</span>
+              <span>{message.toolCalls.length} tool calls:</span>
             </div>
           )}
           
@@ -105,6 +103,19 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
           {message.toolCalls.map((toolCall) => (
             <ToolCallComponent key={toolCall.id} toolCall={toolCall} />
           ))}
+        </div>
+      )}
+      
+      {/* Show typing indicator for empty assistant messages without tool calls */}
+      {message.role === 'assistant' && message.content === '' && (!message.toolCalls || message.toolCalls.length === 0) && (
+        <div className={`px-4 py-3 border-l-4 rounded-r-lg ${borderColor.replace('border-', 'border-')} ${agentType === 'engineer' ? 'bg-orange-950/20' : 'bg-blue-950/20'}`}>
+          <div className={`font-bold mb-2 ${agentColor}`}>
+            {agentLabel}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-400 animate-pulse">▊</span>
+            <span className="text-gray-400 text-sm animate-pulse">thinking...</span>
+          </div>
         </div>
       )}
     </div>
@@ -156,7 +167,7 @@ export function ChatPanel() {
 
   // Debug: log when messages change
   useEffect(() => {
-    console.log('[ChatPanel] messages updated:', messages.length, 'msgs, first content:', messages[0]?.content?.slice(0, 50))
+    console.log('[ChatPanel] messages updated:', messages.length, 'msgs')
     // Also log tool calls for debugging
     messages.forEach((msg, i) => {
       if (msg.toolCalls && msg.toolCalls.length > 0) {
@@ -194,23 +205,28 @@ export function ChatPanel() {
   return (
     <div className="flex-1 flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[#333] flex items-center gap-2">
-        <span className={isEngineer ? 'text-orange-500' : 'text-green-500'}>●</span>
-        <span className="text-white font-bold">{agentName}</span>
-        <span className="text-gray-500">- {agentSubtitle}</span>
+      <div className="px-6 py-4 border-b border-gray-700 flex items-center gap-3 bg-gray-900/50">
+        <span className={`text-lg ${isEngineer ? 'text-orange-500' : 'text-green-500'}`}>●</span>
+        <span className="text-white font-bold text-lg">{agentName}</span>
+        <span className="text-gray-400">-</span>
+        <span className="text-gray-400">{agentSubtitle}</span>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Debug info */}
-        <div className="text-xs text-gray-600 font-mono">
-          [Debug] messages: {messages.length}, streaming: {String(isStreaming)}, content: {messages[0]?.content?.length || 0} chars
-        </div>
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {messages.length === 0 ? (
-          <div className="text-gray-500">
-            {isEngineer 
-              ? 'Engineer thread will show conversation and tool usage...'
-              : 'Start by describing an idea or feature you want to build...'}
+          <div className="text-gray-500 text-center py-12">
+            <div className="text-6xl mb-4">{isEngineer ? '🔧' : '💡'}</div>
+            <div className="text-lg mb-2">
+              {isEngineer 
+                ? 'Engineer thread will show conversation and tool usage...'
+                : 'Start by describing an idea or feature you want to build...'}
+            </div>
+            <div className="text-sm text-gray-600">
+              {isEngineer 
+                ? 'Tool calls will be visually distinct and easy to understand'
+                : 'Your ideas will be analyzed and refined through conversation'}
+            </div>
           </div>
         ) : (
           messages.map(message => (
@@ -225,8 +241,8 @@ export function ChatPanel() {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="p-4 border-t border-[#333]">
-        <div className="border border-[#444] rounded bg-[#111] focus-within:border-[#666]">
+      <form onSubmit={handleSubmit} className="p-6 border-t border-gray-700 bg-gray-900/30">
+        <div className="border border-gray-600 rounded-lg bg-gray-900 focus-within:border-gray-500 focus-within:ring-1 focus-within:ring-gray-500">
           <textarea
             ref={inputRef}
             value={input}
@@ -234,14 +250,17 @@ export function ChatPanel() {
             onKeyDown={handleKeyDown}
             placeholder={isEngineer ? 'Message the engineer...' : 'Describe your idea...'}
             disabled={isStreaming}
-            rows={3}
-            className="w-full bg-transparent text-white px-3 py-2 resize-none focus:outline-none placeholder-gray-600 disabled:opacity-50"
+            className="w-full p-4 bg-transparent text-white placeholder-gray-500 resize-none focus:outline-none min-h-[60px] max-h-[200px]"
+            rows={2}
           />
-          <div className="flex justify-end px-2 pb-2">
+          <div className="flex justify-between items-center px-4 py-2 border-t border-gray-700">
+            <div className="text-xs text-gray-500">
+              {isStreaming ? 'Sending...' : 'Press Enter to send, Shift+Enter for new line'}
+            </div>
             <button
               type="submit"
               disabled={!input.trim() || isStreaming}
-              className="px-4 py-1 bg-orange-600 hover:bg-orange-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded transition-colors"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
             >
               {isStreaming ? 'Sending...' : 'Send'}
             </button>

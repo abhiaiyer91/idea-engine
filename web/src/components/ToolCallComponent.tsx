@@ -15,15 +15,60 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
     const status = toolCall.status
     switch (status) {
       case "calling":
-        return { color: "text-yellow-400", text: "calling...", icon: "⏳", pulse: true }
+        return { 
+          color: "text-amber-400", 
+          bgColor: "bg-amber-950/30", 
+          borderColor: "border-amber-500",
+          text: "calling...", 
+          icon: "⏳", 
+          pulse: true 
+        }
       case "complete":
-        return { color: "text-green-400", text: "complete", icon: "✅", pulse: false }
+        return { 
+          color: "text-emerald-400", 
+          bgColor: "bg-emerald-950/30", 
+          borderColor: "border-emerald-500",
+          text: "complete", 
+          icon: "✅", 
+          pulse: false 
+        }
       case "error":
-        return { color: "text-red-400", text: "error", icon: "❌", pulse: false }
+        return { 
+          color: "text-red-400", 
+          bgColor: "bg-red-950/30", 
+          borderColor: "border-red-500",
+          text: "error", 
+          icon: "❌", 
+          pulse: false 
+        }
       default:
-        return { color: "text-gray-400", text: "unknown", icon: "❓", pulse: false }
+        return { 
+          color: "text-gray-400", 
+          bgColor: "bg-gray-900/50", 
+          borderColor: "border-gray-600",
+          text: "unknown", 
+          icon: "❓", 
+          pulse: false 
+        }
     }
   }, [toolCall.status])
+  
+  // Get appropriate icon for tool type
+  const getToolIcon = useMemo(() => {
+    const name = toolCall.name.toLowerCase()
+    if (name.includes('file') || name.includes('read') || name.includes('write')) return "📄"
+    if (name.includes('git') || name.includes('commit') || name.includes('push')) return "🔀"
+    if (name.includes('search') || name.includes('find')) return "🔍"
+    if (name.includes('issue') || name.includes('github')) return "🐛"
+    if (name.includes('npm') || name.includes('install')) return "📦"
+    if (name.includes('test') || name.includes('run')) return "🧪"
+    if (name.includes('build') || name.includes('compile')) return "🔨"
+    if (name.includes('create') || name.includes('setup')) return "🏗️"
+    if (name.includes('list') || name.includes('directory')) return "📁"
+    if (name.includes('pull') || name.includes('fetch')) return "⬇️"
+    if (name.includes('diff') || name.includes('status')) return "📊"
+    return "🔧"
+  }, [toolCall.name])
   
   // Memoize JSON formatting for better performance
   const formatJson = useMemo(() => {
@@ -37,8 +82,8 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
         const formatted = JSON.stringify(obj, null, 2)
         
         // Limit very long outputs to prevent UI issues
-        if (formatted.length > 1000) {
-          return formatted.substring(0, 1000) + "\\n... (truncated)"
+        if (formatted.length > 2000) {
+          return formatted.substring(0, 2000) + "\\n... (truncated)"
         }
         
         return formatted
@@ -74,10 +119,10 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
     if (hasError) {
       shouldAutoExpand = true
     } else {
-      // Auto-expand if input/output is very short (less than 100 chars total)
+      // Auto-expand if input/output is very short (less than 150 chars total)
       const inputStr = hasInput ? formatJson(toolCall.input) : ""
       const outputStr = hasOutput ? formatJson(toolCall.output) : ""
-      shouldAutoExpand = (inputStr.length + outputStr.length) < 100
+      shouldAutoExpand = (inputStr.length + outputStr.length) < 150
     }
     
     return { hasInput, hasOutput, hasError, shouldAutoExpand }
@@ -94,22 +139,6 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
     setExpanded(!expanded)
   }
   
-  // Enhanced border color logic with better visual distinction
-  const borderColor = useMemo(() => {
-    if (toolCall.status === "error") return "border-red-500"
-    if (toolCall.status === "complete") return "border-green-600"
-    if (toolCall.status === "calling") return "border-yellow-500"
-    return "border-gray-600"
-  }, [toolCall.status])
-  
-  // Enhanced background color for better visual distinction
-  const backgroundColor = useMemo(() => {
-    if (toolCall.status === "error") return "bg-red-950/30"
-    if (toolCall.status === "calling") return "bg-yellow-950/30"
-    if (toolCall.status === "complete") return "bg-green-950/30"
-    return "bg-gray-900/50"
-  }, [toolCall.status])
-  
   // Tool name with better formatting
   const displayName = useMemo(() => {
     const name = toolCall.name
@@ -123,46 +152,66 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
   }, [contentInfo])
   
   // Render content with markdown support
-  const renderContent = (content: any, isError = false) => {
+  const renderContent = (content: any, isError = false, isInput = false) => {
     const stringContent = formatJson(content)
     
     if (isMarkdown(stringContent)) {
       return (
-        <div className={`prose prose-invert prose-sm max-w-none ${isError ? 'prose-red' : ''}`}>
+        <div className={`prose prose-invert prose-sm max-w-none ${isError ? 'prose-red' : isInput ? 'prose-blue' : 'prose-green'}`}>
           <ReactMarkdown 
             remarkPlugins={[remarkGfm]}
             components={{
-              h1: ({children}) => <h1 className={`text-sm font-bold mb-1 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</h1>,
-              h2: ({children}) => <h2 className={`text-sm font-bold mb-1 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</h2>,
-              h3: ({children}) => <h3 className={`text-xs font-bold mb-1 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</h3>,
-              p: ({children}) => <p className={`text-xs mb-1 last:mb-0 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</p>,
+              h1: ({children}) => <h1 className={`text-sm font-bold mb-1 ${isError ? 'text-red-300' : isInput ? 'text-blue-300' : 'text-emerald-300'}`}>{children}</h1>,
+              h2: ({children}) => <h2 className={`text-sm font-bold mb-1 ${isError ? 'text-red-300' : isInput ? 'text-blue-300' : 'text-emerald-300'}`}>{children}</h2>,
+              h3: ({children}) => <h3 className={`text-xs font-bold mb-1 ${isError ? 'text-red-300' : isInput ? 'text-blue-300' : 'text-emerald-300'}`}>{children}</h3>,
+              p: ({children}) => <p className={`text-xs mb-1 last:mb-0 ${isError ? 'text-red-200' : isInput ? 'text-blue-200' : 'text-emerald-200'}`}>{children}</p>,
               code: ({children, className}) => {
                 const isInline = !className
                 if (isInline) {
-                  return <code className={`px-1 py-0.5 rounded text-xs font-mono ${isError ? 'bg-red-900 text-red-200' : 'bg-gray-800 text-orange-300'}`}>{children}</code>
+                  return <code className={`px-1 py-0.5 rounded text-xs font-mono ${
+                    isError ? 'bg-red-900 text-red-200' : 
+                    isInput ? 'bg-blue-900 text-blue-200' : 
+                    'bg-emerald-900 text-emerald-200'
+                  }`}>{children}</code>
                 }
                 return (
-                  <pre className={`border rounded p-2 overflow-x-auto my-1 ${isError ? 'bg-red-950 border-red-700' : 'bg-gray-950 border-gray-700'}`}>
-                    <code className={`text-xs font-mono ${isError ? 'text-red-200' : 'text-gray-300'}`}>{children}</code>
+                  <pre className={`border rounded p-2 overflow-x-auto my-1 ${
+                    isError ? 'bg-red-950 border-red-700' : 
+                    isInput ? 'bg-blue-950 border-blue-700' : 
+                    'bg-emerald-950 border-emerald-700'
+                  }`}>
+                    <code className={`text-xs font-mono ${
+                      isError ? 'text-red-200' : 
+                      isInput ? 'text-blue-200' : 
+                      'text-emerald-200'
+                    }`}>{children}</code>
                   </pre>
                 )
               },
               pre: ({children}) => <div className="my-1">{children}</div>,
-              ul: ({children}) => <ul className={`list-disc list-inside mb-1 space-y-0.5 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</ul>,
-              ol: ({children}) => <ol className={`list-decimal list-inside mb-1 space-y-0.5 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</ol>,
-              li: ({children}) => <li className={`text-xs ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</li>,
+              ul: ({children}) => <ul className={`list-disc list-inside mb-1 space-y-0.5 ${isError ? 'text-red-200' : isInput ? 'text-blue-200' : 'text-emerald-200'}`}>{children}</ul>,
+              ol: ({children}) => <ol className={`list-decimal list-inside mb-1 space-y-0.5 ${isError ? 'text-red-200' : isInput ? 'text-blue-200' : 'text-emerald-200'}`}>{children}</ol>,
+              li: ({children}) => <li className={`text-xs ${isError ? 'text-red-200' : isInput ? 'text-blue-200' : 'text-emerald-200'}`}>{children}</li>,
               blockquote: ({children}) => (
-                <blockquote className={`border-l-2 pl-2 italic my-1 ${isError ? 'border-red-500 text-red-400' : 'border-gray-500 text-gray-400'}`}>
+                <blockquote className={`border-l-2 pl-2 italic my-1 ${
+                  isError ? 'border-red-500 text-red-300' : 
+                  isInput ? 'border-blue-500 text-blue-300' : 
+                  'border-emerald-500 text-emerald-300'
+                }`}>
                   {children}
                 </blockquote>
               ),
               a: ({children, href}) => (
-                <a href={href} className={`underline ${isError ? 'text-red-400 hover:text-red-300' : 'text-blue-400 hover:text-blue-300'}`} target="_blank" rel="noopener noreferrer">
+                <a href={href} className={`underline ${
+                  isError ? 'text-red-400 hover:text-red-300' : 
+                  isInput ? 'text-blue-400 hover:text-blue-300' : 
+                  'text-emerald-400 hover:text-emerald-300'
+                }`} target="_blank" rel="noopener noreferrer">
                   {children}
                 </a>
               ),
-              strong: ({children}) => <strong className={`font-bold ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</strong>,
-              em: ({children}) => <em className={`italic ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</em>,
+              strong: ({children}) => <strong className={`font-bold ${isError ? 'text-red-200' : isInput ? 'text-blue-200' : 'text-emerald-200'}`}>{children}</strong>,
+              em: ({children}) => <em className={`italic ${isError ? 'text-red-200' : isInput ? 'text-blue-200' : 'text-emerald-200'}`}>{children}</em>,
             }}
           >
             {stringContent}
@@ -173,29 +222,34 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
     
     // Fallback to preformatted text
     return (
-      <pre className={`text-xs whitespace-pre-wrap font-mono ${isError ? 'text-red-300' : 'text-gray-300'}`}>
+      <pre className={`text-xs whitespace-pre-wrap font-mono ${
+        isError ? 'text-red-200' : 
+        isInput ? 'text-blue-200' : 
+        'text-emerald-200'
+      }`}>
         {stringContent}
       </pre>
     )
   }
   
   return (
-    <div className={`border ${borderColor} rounded-lg p-3 my-2 ${backgroundColor}`}>
+    <div className={`border ${statusInfo.borderColor} rounded-lg p-3 my-2 ${statusInfo.bgColor} transition-all duration-200`}>
       {/* Tool header - always visible with enhanced styling */}
       <div 
-        className={`flex items-center gap-2 rounded p-1 -m-1 ${
+        className={`flex items-center gap-2 rounded p-1 -m-1 transition-colors ${
           hasExpandableContent ? 'cursor-pointer hover:bg-gray-800/50' : 'cursor-default'
         }`}
         onClick={hasExpandableContent ? toggleExpanded : undefined}
       >
-        <span className="text-gray-400">🔧</span>
-        <span className="text-white font-bold">{displayName}</span>
+        <span className="text-gray-400 text-lg">{getToolIcon}</span>
+        <span className="text-white font-bold text-sm">{displayName}</span>
         <span className="text-gray-500">•</span>
-        <span className={`${statusInfo.color} ${statusInfo.pulse ? 'animate-pulse' : ''}`}>
-          {statusInfo.icon} {statusInfo.text}
+        <span className={`${statusInfo.color} ${statusInfo.pulse ? 'animate-pulse' : ''} text-sm flex items-center gap-1`}>
+          <span>{statusInfo.icon}</span>
+          <span>{statusInfo.text}</span>
         </span>
         {hasExpandableContent && (
-          <span className="text-gray-500 ml-auto">
+          <span className="text-gray-500 ml-auto text-sm">
             {expanded ? "▼" : "▶"}
           </span>
         )}
@@ -207,11 +261,12 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
           {/* Input section with better formatting */}
           {contentInfo.hasInput && (
             <div>
-              <div className="text-gray-400 font-bold mb-1 flex items-center gap-1">
-                📥 Input:
+              <div className="text-blue-400 font-bold mb-2 flex items-center gap-2 text-sm">
+                <span>📥</span>
+                <span>Input:</span>
               </div>
-              <div className="border-l-2 border-gray-600 pl-3 ml-2 bg-gray-950/50 rounded-r p-2">
-                {renderContent(toolCall.input)}
+              <div className="border-l-4 border-blue-500 pl-4 ml-2 bg-blue-950/20 rounded-r p-3">
+                {renderContent(toolCall.input, false, true)}
               </div>
             </div>
           )}
@@ -219,11 +274,12 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
           {/* Output section with better formatting */}
           {contentInfo.hasOutput && (
             <div>
-              <div className="text-gray-400 font-bold mb-1 flex items-center gap-1">
-                📤 Output:
+              <div className="text-emerald-400 font-bold mb-2 flex items-center gap-2 text-sm">
+                <span>📤</span>
+                <span>Output:</span>
               </div>
-              <div className="border-l-2 border-gray-600 pl-3 ml-2 bg-gray-950/50 rounded-r p-2">
-                {renderContent(toolCall.output)}
+              <div className="border-l-4 border-emerald-500 pl-4 ml-2 bg-emerald-950/20 rounded-r p-3">
+                {renderContent(toolCall.output, false, false)}
               </div>
             </div>
           )}
@@ -231,11 +287,12 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
           {/* Error section with enhanced visibility */}
           {contentInfo.hasError && (
             <div>
-              <div className="text-red-400 font-bold mb-1 flex items-center gap-1">
-                ❌ Error:
+              <div className="text-red-400 font-bold mb-2 flex items-center gap-2 text-sm">
+                <span>❌</span>
+                <span>Error:</span>
               </div>
-              <div className="border-l-2 border-red-500 pl-3 ml-2 bg-red-950/50 rounded-r p-2">
-                {renderContent(toolCall.error, true)}
+              <div className="border-l-4 border-red-500 pl-4 ml-2 bg-red-950/20 rounded-r p-3">
+                {renderContent(toolCall.error, true, false)}
               </div>
             </div>
           )}
