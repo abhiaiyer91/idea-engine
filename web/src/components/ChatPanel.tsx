@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useAgentStore } from '../stores/useAgentStore'
 import type { ChatMessage } from '../types'
 import { ToolCallComponent } from './ToolCallComponent'
@@ -16,10 +18,73 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
         <div className={`px-4 py-2 border-l-2 ${
           isUser ? 'border-green-500' : borderColor
         }`}>
-          <span className={`font-bold ${isUser ? 'text-green-500' : agentColor}`}>
+          <div className={`font-bold mb-1 ${isUser ? 'text-green-500' : agentColor}`}>
             {isUser ? 'You: ' : agentLabel}
-          </span>
-          <span className="text-white whitespace-pre-wrap">{message.content}</span>
+          </div>
+          {isUser ? (
+            // User messages as plain text
+            <div className="text-white whitespace-pre-wrap">{message.content}</div>
+          ) : (
+            // Agent messages with markdown rendering
+            <div className="text-white prose prose-invert prose-sm max-w-none">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  // Custom styling for markdown elements
+                  h1: ({children}) => <h1 className="text-xl font-bold text-white mb-2">{children}</h1>,
+                  h2: ({children}) => <h2 className="text-lg font-bold text-white mb-2">{children}</h2>,
+                  h3: ({children}) => <h3 className="text-base font-bold text-white mb-1">{children}</h3>,
+                  p: ({children}) => <p className="text-white mb-2 last:mb-0">{children}</p>,
+                  code: ({children, className}) => {
+                    const isInline = !className
+                    if (isInline) {
+                      return <code className="bg-gray-800 text-orange-300 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+                    }
+                    return (
+                      <pre className="bg-gray-900 border border-gray-700 rounded p-3 overflow-x-auto my-2">
+                        <code className="text-gray-300 text-sm font-mono">{children}</code>
+                      </pre>
+                    )
+                  },
+                  pre: ({children}) => <div className="my-2">{children}</div>,
+                  ul: ({children}) => <ul className="list-disc list-inside text-white mb-2 space-y-1">{children}</ul>,
+                  ol: ({children}) => <ol className="list-decimal list-inside text-white mb-2 space-y-1">{children}</ol>,
+                  li: ({children}) => <li className="text-white">{children}</li>,
+                  blockquote: ({children}) => (
+                    <blockquote className="border-l-4 border-gray-500 pl-4 italic text-gray-300 my-2">
+                      {children}
+                    </blockquote>
+                  ),
+                  a: ({children, href}) => (
+                    <a href={href} className="text-blue-400 hover:text-blue-300 underline" target="_blank" rel="noopener noreferrer">
+                      {children}
+                    </a>
+                  ),
+                  table: ({children}) => (
+                    <div className="overflow-x-auto my-2">
+                      <table className="min-w-full border border-gray-700 rounded">
+                        {children}
+                      </table>
+                    </div>
+                  ),
+                  th: ({children}) => (
+                    <th className="border border-gray-700 px-3 py-2 bg-gray-800 text-white font-bold text-left">
+                      {children}
+                    </th>
+                  ),
+                  td: ({children}) => (
+                    <td className="border border-gray-700 px-3 py-2 text-white">
+                      {children}
+                    </td>
+                  ),
+                  strong: ({children}) => <strong className="font-bold text-white">{children}</strong>,
+                  em: ({children}) => <em className="italic text-white">{children}</em>,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
           {message.role === 'assistant' && message.content === '' && (
             <span className="text-yellow-400 animate-pulse">▊</span>
           )}

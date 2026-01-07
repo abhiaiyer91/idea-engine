@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ToolCall } from '../types'
 
 interface ToolCallComponentProps {
@@ -43,6 +45,21 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
       } catch {
         return String(obj)
       }
+    }
+  }, [])
+  
+  // Check if content looks like markdown
+  const isMarkdown = useMemo(() => {
+    return (content: string): boolean => {
+      if (!content || typeof content !== 'string') return false
+      // Simple heuristics for markdown detection
+      return content.includes('```') || 
+             content.includes('##') || 
+             content.includes('- ') ||
+             content.includes('* ') ||
+             content.includes('[') && content.includes('](') ||
+             content.includes('**') ||
+             content.includes('`')
     }
   }, [])
   
@@ -105,6 +122,63 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
     return contentInfo.hasInput || contentInfo.hasOutput || contentInfo.hasError
   }, [contentInfo])
   
+  // Render content with markdown support
+  const renderContent = (content: any, isError = false) => {
+    const stringContent = formatJson(content)
+    
+    if (isMarkdown(stringContent)) {
+      return (
+        <div className={`prose prose-invert prose-sm max-w-none ${isError ? 'prose-red' : ''}`}>
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm]}
+            components={{
+              h1: ({children}) => <h1 className={`text-sm font-bold mb-1 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</h1>,
+              h2: ({children}) => <h2 className={`text-sm font-bold mb-1 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</h2>,
+              h3: ({children}) => <h3 className={`text-xs font-bold mb-1 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</h3>,
+              p: ({children}) => <p className={`text-xs mb-1 last:mb-0 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</p>,
+              code: ({children, className}) => {
+                const isInline = !className
+                if (isInline) {
+                  return <code className={`px-1 py-0.5 rounded text-xs font-mono ${isError ? 'bg-red-900 text-red-200' : 'bg-gray-800 text-orange-300'}`}>{children}</code>
+                }
+                return (
+                  <pre className={`border rounded p-2 overflow-x-auto my-1 ${isError ? 'bg-red-950 border-red-700' : 'bg-gray-950 border-gray-700'}`}>
+                    <code className={`text-xs font-mono ${isError ? 'text-red-200' : 'text-gray-300'}`}>{children}</code>
+                  </pre>
+                )
+              },
+              pre: ({children}) => <div className="my-1">{children}</div>,
+              ul: ({children}) => <ul className={`list-disc list-inside mb-1 space-y-0.5 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</ul>,
+              ol: ({children}) => <ol className={`list-decimal list-inside mb-1 space-y-0.5 ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</ol>,
+              li: ({children}) => <li className={`text-xs ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</li>,
+              blockquote: ({children}) => (
+                <blockquote className={`border-l-2 pl-2 italic my-1 ${isError ? 'border-red-500 text-red-400' : 'border-gray-500 text-gray-400'}`}>
+                  {children}
+                </blockquote>
+              ),
+              a: ({children, href}) => (
+                <a href={href} className={`underline ${isError ? 'text-red-400 hover:text-red-300' : 'text-blue-400 hover:text-blue-300'}`} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              ),
+              strong: ({children}) => <strong className={`font-bold ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</strong>,
+              em: ({children}) => <em className={`italic ${isError ? 'text-red-300' : 'text-gray-300'}`}>{children}</em>,
+            }}
+          >
+            {stringContent}
+          </ReactMarkdown>
+        </div>
+      )
+    }
+    
+    // Fallback to preformatted text
+    return (
+      <pre className={`text-xs whitespace-pre-wrap font-mono ${isError ? 'text-red-300' : 'text-gray-300'}`}>
+        {stringContent}
+      </pre>
+    )
+  }
+  
   return (
     <div className={`border ${borderColor} rounded-lg p-3 my-2 ${backgroundColor}`}>
       {/* Tool header - always visible with enhanced styling */}
@@ -137,9 +211,7 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
                 📥 Input:
               </div>
               <div className="border-l-2 border-gray-600 pl-3 ml-2 bg-gray-950/50 rounded-r p-2">
-                <pre className="text-gray-300 text-sm whitespace-pre-wrap font-mono">
-                  {formatJson(toolCall.input)}
-                </pre>
+                {renderContent(toolCall.input)}
               </div>
             </div>
           )}
@@ -151,9 +223,7 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
                 📤 Output:
               </div>
               <div className="border-l-2 border-gray-600 pl-3 ml-2 bg-gray-950/50 rounded-r p-2">
-                <pre className="text-gray-300 text-sm whitespace-pre-wrap font-mono">
-                  {formatJson(toolCall.output)}
-                </pre>
+                {renderContent(toolCall.output)}
               </div>
             </div>
           )}
@@ -165,9 +235,7 @@ export function ToolCallComponent({ toolCall }: ToolCallComponentProps) {
                 ❌ Error:
               </div>
               <div className="border-l-2 border-red-500 pl-3 ml-2 bg-red-950/50 rounded-r p-2">
-                <pre className="text-red-300 text-sm whitespace-pre-wrap font-mono">
-                  {toolCall.error}
-                </pre>
+                {renderContent(toolCall.error, true)}
               </div>
             </div>
           )}
