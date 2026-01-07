@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Agent, Thread, ChatMessage, GitHubIssue } from '../types'
+import type { Agent, Thread, ChatMessage, GitHubIssue, ToolCall } from '../types'
 import { getStoredApiKeys } from '../components/SettingsModal'
 
 const API_BASE = '/api'
@@ -62,6 +62,78 @@ interface AgentStore {
   clearLogs: () => void
 }
 
+// Helper function to extract tool calls from message content
+function extractContentAndToolCalls(content: any): { text: string; toolCalls: ToolCall[] } {
+  let text = ""
+  let toolCalls: ToolCall[] = []
+  
+  // Simple string
+  if (typeof content === 'string') {
+    return { text: content, toolCalls: [] }
+  }
+  
+  // MastraMessageContentV2 format: { format: 2, parts: [...] }
+  if (content?.format === 2 && Array.isArray(content.parts)) {
+    const textParts: string[] = []
+    
+    content.parts.forEach((part: any) => {
+      try {
+        // Text part
+        if (part.type === 'text' && part.text) {
+          textParts.push(part.text)
+        }
+        // Tool call/invocation
+        else if (part.type === 'tool-invocation' || part.type === 'tool-call') {
+          let status: 'calling' | 'complete' | 'error' = 'calling'
+          if (part.error) {
+            status = 'error'
+          } else if (part.result !== undefined || part.output !== undefined) {
+            status = 'complete'
+          }
+          
+          const toolCall: ToolCall = {
+            id: part.id || crypto.randomUUID(),
+            name: part.toolName || part.name || 'unknown',
+            status,
+            input: part.args || part.input || {},
+            output: part.result || part.output,
+            error: part.error
+          }
+          toolCalls.push(toolCall)
+        }
+        // Handle tool-result parts
+        else if (part.type === 'tool-result') {
+          const existingCall = toolCalls.find(tc => tc.id === part.toolCallId)
+          if (existingCall) {
+            existingCall.output = part.result
+            existingCall.status = part.isError ? 'error' : 'complete'
+            if (part.isError) {
+              existingCall.error = part.result
+            }
+          }
+        }
+      } catch (partError: any) {
+        console.warn(`Error processing message part: ${partError.message}`)
+      }
+    })
+    
+    text = textParts.filter(Boolean).join('')
+  }
+  // Legacy array format
+  else if (Array.isArray(content)) {
+    text = content
+      .map((c: any) => c.text || (typeof c === 'string' ? c : ''))
+      .filter(Boolean)
+      .join('')
+  }
+  // Object with text property
+  else if (content?.text) {
+    text = content.text
+  }
+  
+  return { text, toolCalls }
+}
+
 export const useAgentStore = create<AgentStore>((set, get) => ({
   agents: [
     { id: "pv-1", name: "Product Visionary", type: "visionary", status: "idle" },
@@ -100,73 +172,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set({ currentThreadId: null, messages: [], currentAgentId: "pv-1" })
   },
 
-  deleteThread: async (threadId: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/threads/${threadId}`, {
-        method: 'DELETE',
-      })
-      
-      if (!res.ok) {
-        throw new Error('Failed to delete thread')
-      }
-      
-      // Remove from local state
-      set((state) => {
-        const isCurrentThread = state.currentThreadId === threadId
-        return {
-          threads: state.threads.filter(t => t.id !== threadId),
-          currentThreadId: isCurrentThread ? null : state.currentThreadId,
-          messages: isCurrentThread ? [] : state.messages,
-        }
-      })
-    } catch (error) {
-      console.error('Failed to delete thread:', error)
-    }
-  },
-
   loadThreads: async () => {
     try {
       set({ isLoading: true })
       const res = await fetch(`${API_BASE}/threads`)
       const data = await res.json()
-      
-      const threads: Thread[] = (data.threads || []).map((t: Record<string, unknown>) => ({
-        id: t.id,
-        title: t.title || (String(t.id).startsWith('engineer-') 
-          ? `Engineer: Issue #${String(t.id).replace('engineer-', '')}`
-          : 'Untitled'),
-        resourceId: t.resourceId,
-        createdAt: new Date(t.createdAt as string),
-        updatedAt: new Date(t.updatedAt as string),
-        metadata: t.metadata,
-      }))
-      
-      // Sort by most recent
-      threads.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      
-      // Build agent list from engineer threads
-      const engineerAgents: Agent[] = threads
-        .filter(t => t.id.startsWith('engineer-'))
-        .map(t => {
-          const issueNumber = parseInt(t.id.replace('engineer-', ''), 10)
-          return {
-            id: `eng-${issueNumber}`,
-            name: `Engineer`,
-            type: 'engineer' as const,
-            status: 'idle' as const,
-            currentTask: `Issue #${issueNumber}`,
-            issueNumber,
-            threadId: t.id,
-          }
-        })
-      
-      set({ 
-        threads,
-        agents: [
-          { id: "pv-1", name: "Product Visionary", type: "visionary", status: "idle" },
-          ...engineerAgents,
-        ]
-      })
+      set({ threads: data.threads || [] })
     } catch (error) {
       console.error('Failed to load threads:', error)
     } finally {
@@ -176,26 +187,41 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   loadMessages: async (threadId: string) => {
     try {
-      set({ isLoading: true })
       const res = await fetch(`${API_BASE}/threads/${threadId}/messages`)
       const data = await res.json()
       
-      const messages: ChatMessage[] = (data.messages || [])
-        .filter((m: Record<string, unknown>) => m.role === 'user' || m.role === 'assistant')
-        .map((m: Record<string, unknown>) => ({
-          id: m.id,
-          role: m.role as 'user' | 'assistant',
-          content: extractTextContent(m.content),
-          timestamp: new Date(m.createdAt as string),
-        }))
-        .filter((m: ChatMessage) => m.content.trim() !== '')
-      
-      set({ messages })
+      // Parse messages and extract tool calls
+      const parsedMessages: ChatMessage[] = (data.messages || [])
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .map((m: any) => {
+          const { text, toolCalls } = extractContentAndToolCalls(m.content)
+          return {
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: text,
+            timestamp: new Date(m.createdAt),
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          }
+        })
+        .filter((m: ChatMessage) => m.content.trim() !== '' || (m.toolCalls && m.toolCalls.length > 0))
+
+      set({ messages: parsedMessages })
     } catch (error) {
       console.error('Failed to load messages:', error)
       set({ messages: [] })
-    } finally {
-      set({ isLoading: false })
+    }
+  },
+
+  deleteThread: async (threadId: string) => {
+    try {
+      await fetch(`${API_BASE}/threads/${threadId}`, { method: 'DELETE' })
+      set((state) => ({
+        threads: state.threads.filter(t => t.id !== threadId),
+        currentThreadId: state.currentThreadId === threadId ? null : state.currentThreadId,
+        messages: state.currentThreadId === threadId ? [] : state.messages,
+      }))
+    } catch (error) {
+      console.error('Failed to delete thread:', error)
     }
   },
 
@@ -272,7 +298,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const decoder = new TextDecoder()
       let fullContent = ''
       let buffer = ''
-      const toolCalls = new Map<string, ToolCallLog>()
+      const toolCallsMap = new Map<string, ToolCall>()
 
       if (reader) {
         while (true) {
@@ -285,7 +311,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           if (isEngineer) {
             // Parse SSE for engineers
             buffer += chunk
-            const lines = buffer.split('\n')
+            const lines = buffer.split('\\n')
             buffer = lines.pop() || ''
             
             for (const line of lines) {
@@ -303,6 +329,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                       )
                     }))
                   } else if (data.type === 'tool-call') {
+                    // Create tool call and add to message
+                    const toolCall: ToolCall = {
+                      id: data.toolCallId,
+                      name: data.toolName,
+                      status: 'calling',
+                      input: data.args || {},
+                    }
+                    toolCallsMap.set(data.toolCallId, toolCall)
+                    
+                    // Update message with tool calls
+                    set((state) => ({
+                      messages: state.messages.map((m) => 
+                        m.id === assistantMessageId 
+                          ? { ...m, toolCalls: Array.from(toolCallsMap.values()) }
+                          : m
+                      )
+                    }))
+                    
+                    // Also add to logs
                     const toolLog: ToolCallLog = {
                       id: data.toolCallId,
                       toolName: data.toolName,
@@ -310,21 +355,32 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                       args: data.args,
                       timestamp: new Date(),
                     }
-                    toolCalls.set(data.toolCallId, toolLog)
                     get().addLog({ 
                       type: 'tool-call', 
                       message: `Calling ${data.toolName}`,
                       toolCall: toolLog,
                     })
                   } else if (data.type === 'tool-result') {
-                    const existing = toolCalls.get(data.toolCallId)
+                    // Update existing tool call with result
+                    const existing = toolCallsMap.get(data.toolCallId)
                     if (existing) {
                       existing.status = 'complete'
-                      existing.result = data.result
+                      existing.output = data.result
+                      
+                      // Update message with updated tool calls
+                      set((state) => ({
+                        messages: state.messages.map((m) => 
+                          m.id === assistantMessageId 
+                            ? { ...m, toolCalls: Array.from(toolCallsMap.values()) }
+                            : m
+                        )
+                      }))
+                      
+                      // Update logs
                       set((state) => ({
                         logs: state.logs.map(log => 
                           log.toolCall?.id === data.toolCallId
-                            ? { ...log, toolCall: { ...existing } }
+                            ? { ...log, toolCall: { ...log.toolCall, status: 'complete', result: data.result } }
                             : log
                         )
                       }))
@@ -398,50 +454,24 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     
     // Add engineer agent if not exists
     set((state) => {
-      const existingEngineer = state.agents.find(a => a.id === `eng-${issueNumber}`)
-      if (!existingEngineer) {
+      const existingAgent = state.agents.find(a => a.id === `eng-${issueNumber}`)
+      if (!existingAgent) {
         return {
-          agents: [
-            ...state.agents,
-            {
-              id: `eng-${issueNumber}`,
-              name: `Engineer`,
-              type: 'engineer' as const,
-              status: 'working' as const,
-              currentTask: `Issue #${issueNumber}`,
-              issueNumber,
-              threadId,
-            }
-          ]
+          agents: [...state.agents, {
+            id: `eng-${issueNumber}`,
+            name: `Engineer-${issueNumber}`,
+            type: 'engineer' as const,
+            status: 'working' as const,
+            issueNumber,
+            threadId,
+          }]
         }
       }
-      return {
-        agents: state.agents.map(a => 
-          a.id === `eng-${issueNumber}` 
-            ? { ...a, status: 'working' as const }
-            : a
-        )
-      }
+      return {}
     })
     
-    // Add placeholder message
-    const assistantMessageId = crypto.randomUUID()
-    set({
-      messages: [{
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-        timestamp: new Date(),
-      }]
-    })
-
     try {
       const apiKeys = getStoredApiKeys()
-      
-      // Clear logs for new engineer session
-      set({ logs: [] })
-      get().addLog({ type: 'info', message: `Starting engineer for issue #${issueNumber}` })
-      
       const res = await fetch(`${API_BASE}/engineer/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -453,50 +483,69 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         throw new Error(errorData.error || 'Failed to start engineer')
       }
 
-      // Stream the SSE response
+      // Stream the response
       const reader = res.body?.getReader()
       const decoder = new TextDecoder()
       let fullContent = ''
       let buffer = ''
-      const toolCalls = new Map<string, ToolCallLog>()
+      const toolCallsMap = new Map<string, ToolCall>()
+
+      // Add initial assistant message
+      const assistantMessageId = crypto.randomUUID()
+      const assistantMessage: ChatMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+      }
+      set((state) => ({ 
+        messages: [assistantMessage],
+      }))
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
           
-          buffer += decoder.decode(value, { stream: true })
-          
-          // Process complete SSE messages
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // Keep incomplete line in buffer
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
+          const lines = buffer.split('\\n')
+          buffer = lines.pop() || ''
           
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6))
-                console.log('[SSE] Received:', data.type, data.type === 'text' ? `"${data.content?.slice(0, 50)}..."` : '')
                 
                 if (data.type === 'text') {
-                  // Accumulate text content
                   fullContent += data.content || ''
-                  console.log('[SSE] Text content now:', fullContent.length, 'chars')
-                  console.log('[SSE] assistantMessageId:', assistantMessageId)
-                  console.log('[SSE] Current messages count:', get().messages.length)
-                  set((state) => {
-                    console.log('[SSE] Updating message, state has', state.messages.length, 'messages')
-                    const found = state.messages.find(m => m.id === assistantMessageId)
-                    console.log('[SSE] Found message to update:', !!found)
-                    return {
-                      messages: state.messages.map((m) => 
-                        m.id === assistantMessageId 
-                          ? { ...m, content: fullContent }
-                          : m
-                      )
-                    }
-                  })
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { ...m, content: fullContent }
+                        : m
+                    )
+                  }))
                 } else if (data.type === 'tool-call') {
-                  // Tool call started
+                  // Create tool call and add to message
+                  const toolCall: ToolCall = {
+                    id: data.toolCallId,
+                    name: data.toolName,
+                    status: 'calling',
+                    input: data.args || {},
+                  }
+                  toolCallsMap.set(data.toolCallId, toolCall)
+                  
+                  // Update message with tool calls
+                  set((state) => ({
+                    messages: state.messages.map((m) => 
+                      m.id === assistantMessageId 
+                        ? { ...m, toolCalls: Array.from(toolCallsMap.values()) }
+                        : m
+                    )
+                  }))
+                  
+                  // Also add to logs
                   const toolLog: ToolCallLog = {
                     id: data.toolCallId,
                     toolName: data.toolName,
@@ -504,60 +553,72 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                     args: data.args,
                     timestamp: new Date(),
                   }
-                  toolCalls.set(data.toolCallId, toolLog)
                   get().addLog({ 
                     type: 'tool-call', 
                     message: `Calling ${data.toolName}`,
                     toolCall: toolLog,
                   })
                 } else if (data.type === 'tool-result') {
-                  // Tool call completed
-                  const existing = toolCalls.get(data.toolCallId)
+                  // Update existing tool call with result
+                  const existing = toolCallsMap.get(data.toolCallId)
                   if (existing) {
                     existing.status = 'complete'
-                    existing.result = data.result
-                    // Update the log entry
+                    existing.output = data.result
+                    
+                    // Update message with updated tool calls
+                    set((state) => ({
+                      messages: state.messages.map((m) => 
+                        m.id === assistantMessageId 
+                          ? { ...m, toolCalls: Array.from(toolCallsMap.values()) }
+                          : m
+                      )
+                    }))
+                    
+                    // Update logs
                     set((state) => ({
                       logs: state.logs.map(log => 
                         log.toolCall?.id === data.toolCallId
-                          ? { ...log, toolCall: { ...existing } }
+                          ? { ...log, toolCall: { ...log.toolCall, status: 'complete', result: data.result } }
                           : log
                       )
                     }))
                   }
                 } else if (data.type === 'finish') {
-                  get().addLog({ type: 'info', message: 'Engineer completed' })
+                  // Engineer finished
+                  set((state) => ({
+                    agents: state.agents.map(a => 
+                      a.id === `eng-${issueNumber}`
+                        ? { ...a, status: 'completed' as const }
+                        : a
+                    )
+                  }))
                 }
               } catch (e) {
-                // Ignore parse errors for incomplete JSON
+                // Ignore parse errors
               }
             }
           }
         }
       }
 
-      // Mark engineer as completed
-      set((state) => ({
-        agents: state.agents.map(a => 
-          a.id === `eng-${issueNumber}` 
-            ? { ...a, status: 'completed' as const }
-            : a
-        )
-      }))
-      
       // Refresh threads
       await get().loadThreads()
       
     } catch (error: any) {
       console.error('Failed to start engineer:', error)
-      set((state) => ({
-        messages: state.messages.map((m) => 
-          m.id === assistantMessageId 
-            ? { ...m, content: `Error: ${error.message}` }
-            : m
-        ),
+      const errorMessage = error.message || 'Failed to start engineer'
+      
+      // Add error message
+      const errorMessageObj: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Error: ${errorMessage}`,
+        timestamp: new Date(),
+      }
+      set((state) => ({ 
+        messages: [errorMessageObj],
         agents: state.agents.map(a => 
-          a.id === `eng-${issueNumber}` 
+          a.id === `eng-${issueNumber}`
             ? { ...a, status: 'error' as const }
             : a
         )
@@ -566,52 +627,20 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       set({ isStreaming: false })
     }
   },
+
+  // ============ Log Actions ============
   
-  // Log actions
-  addLog: (log) => {
-    const entry: LogEntry = {
-      ...log,
-      id: crypto.randomUUID(),
-      timestamp: new Date(),
-    }
+  addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => {
     set((state) => ({
-      logs: [...state.logs.slice(-200), entry] // Keep last 200 logs
+      logs: [...state.logs, {
+        ...log,
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+      }]
     }))
   },
-  
+
   clearLogs: () => {
     set({ logs: [] })
   },
 }))
-
-// Helper to extract text from Mastra message format
-function extractTextContent(content: unknown): string {
-  if (typeof content === 'string') return content
-  
-  const c = content as Record<string, unknown>
-  
-  if (c?.format === 2 && Array.isArray(c.parts)) {
-    return (c.parts as Record<string, unknown>[])
-      .map((part) => {
-        if (part.type === 'text' && part.text) return part.text as string
-        if (part.type === 'tool-invocation' || part.type === 'tool-call') return ''
-        return (part.text as string) || ''
-      })
-      .filter(Boolean)
-      .join('')
-  }
-  
-  if (Array.isArray(content)) {
-    return content
-      .map((item: unknown) => {
-        const i = item as Record<string, unknown>
-        return i.text || (typeof item === 'string' ? item : '')
-      })
-      .filter(Boolean)
-      .join('')
-  }
-  
-  if (c?.text) return c.text as string
-  
-  return ''
-}

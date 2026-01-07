@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAgentStore } from '../stores/useAgentStore'
 import type { ChatMessage } from '../types'
+import { ToolCallComponent } from './ToolCallComponent'
 
 function Message({ message, agentType }: { message: ChatMessage; agentType: 'visionary' | 'engineer' }) {
   const isUser = message.role === 'user'
@@ -9,15 +10,37 @@ function Message({ message, agentType }: { message: ChatMessage; agentType: 'vis
   const borderColor = agentType === 'engineer' ? 'border-orange-500' : 'border-blue-500'
   
   return (
-    <div className={`px-4 py-2 border-l-2 ${
-      isUser ? 'border-green-500' : borderColor
-    }`}>
-      <span className={`font-bold ${isUser ? 'text-green-500' : agentColor}`}>
-        {isUser ? 'You: ' : agentLabel}
-      </span>
-      <span className="text-white whitespace-pre-wrap">{message.content}</span>
-      {message.role === 'assistant' && message.content === '' && (
-        <span className="text-yellow-400 animate-pulse">▊</span>
+    <div className="space-y-2">
+      {/* Message text */}
+      {message.content.trim() !== '' && (
+        <div className={`px-4 py-2 border-l-2 ${
+          isUser ? 'border-green-500' : borderColor
+        }`}>
+          <span className={`font-bold ${isUser ? 'text-green-500' : agentColor}`}>
+            {isUser ? 'You: ' : agentLabel}
+          </span>
+          <span className="text-white whitespace-pre-wrap">{message.content}</span>
+          {message.role === 'assistant' && message.content === '' && (
+            <span className="text-yellow-400 animate-pulse">▊</span>
+          )}
+        </div>
+      )}
+      
+      {/* Tool calls */}
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <div className="ml-4 space-y-2">
+          {/* Header for multiple tool calls */}
+          {message.toolCalls.length > 1 && (
+            <div className="text-gray-400 text-sm font-medium border-b border-gray-700 pb-2 mb-2">
+              🔧 {message.toolCalls.length} tool calls:
+            </div>
+          )}
+          
+          {/* Individual tool calls */}
+          {message.toolCalls.map((toolCall) => (
+            <ToolCallComponent key={toolCall.id} toolCall={toolCall} />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -69,6 +92,12 @@ export function ChatPanel() {
   // Debug: log when messages change
   useEffect(() => {
     console.log('[ChatPanel] messages updated:', messages.length, 'msgs, first content:', messages[0]?.content?.slice(0, 50))
+    // Also log tool calls for debugging
+    messages.forEach((msg, i) => {
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        console.log(`[ChatPanel] Message ${i} has ${msg.toolCalls.length} tool calls:`, msg.toolCalls.map(tc => tc.name))
+      }
+    })
   }, [messages])
 
   // Auto-scroll to bottom
