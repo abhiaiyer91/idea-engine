@@ -40,6 +40,56 @@ function getVisionary() {
   return mastra.getAgent('productVisionaryAgent')
 }
 
+// Tool call parsing utilities
+function parseToolCallBlocks(text: string): { cleanText: string; toolCalls: ToolCall[] } {
+  const toolCallRegex = /<function_calls>([\s\S]*?)<\/antml:function_calls>/g
+  const invokeRegex = /<invoke name="([^"]+)">([\s\S]*?)<\/antml:invoke>/g
+  const paramRegex = /<parameter name="([^"]+)">([^<]*)<\/antml:parameter>/g
+  
+  const toolCalls: ToolCall[] = []
+  let cleanText = text
+  
+  // Find all tool call blocks
+  let blockMatch
+  while ((blockMatch = toolCallRegex.exec(text)) !== null) {
+    const blockContent = blockMatch[1]
+    
+    // Parse individual invocations within the block
+    let invokeMatch
+    while ((invokeMatch = invokeRegex.exec(blockContent)) !== null) {
+      const toolName = invokeMatch[1]
+      const invokeContent = invokeMatch[2]
+      
+      // Parse parameters
+      const input: Record<string, any> = {}
+      let paramMatch
+      while ((paramMatch = paramRegex.exec(invokeContent)) !== null) {
+        const paramName = paramMatch[1]
+        const paramValue = paramMatch[2].trim()
+        
+        // Try to parse JSON values, fallback to string
+        try {
+          input[paramName] = JSON.parse(paramValue)
+        } catch {
+          input[paramName] = paramValue
+        }
+      }
+      
+      toolCalls.push({
+        id: crypto.randomUUID(),
+        name: toolName,
+        status: 'calling',
+        input
+      })
+    }
+    
+    // Remove the tool call block from the text
+    cleanText = cleanText.replace(blockMatch[0], '')
+  }
+  
+  return { cleanText: cleanText.trim(), toolCalls }
+}
+
 // Load threads from Mastra storage
 async function loadThreadsFromStorage(): Promise<void> {
   try {
@@ -48,151 +98,58 @@ async function loadThreadsFromStorage(): Promise<void> {
       logger.warn("Memory store not available")
       return
     }
-    
-    const result = await memoryStore.listThreadsByResourceId({ resourceId })
-    
-    const loadedThreads: Thread[] = result.threads.map((t: any) => ({
-      id: t.id,
-      title: t.title || "Untitled",
-      resourceId: t.resourceId,
-      createdAt: new Date(t.createdAt),
-      updatedAt: new Date(t.updatedAt),
-      metadata: t.metadata,
-    }))
 
-    // Sort by most recent
-    loadedThreads.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    const allThreads = await memoryStore.getThreads(resourceId)
     
-    setThreads(loadedThreads)
-    logger.info(`Loaded ${loadedThreads.length} threads`)
+    // Convert to our Thread type and sort by updatedAt (newest first)
+    const convertedThreads: Thread[] = allThreads
+      .map((t: any) => ({
+        id: t.id,
+        title: t.title || "Untitled Thread",
+        resourceId: t.resourceId,
+        createdAt: new Date(t.createdAt),
+        updatedAt: new Date(t.updatedAt),
+        metadata: t.metadata || {},
+      }))
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
 
-    // Select most recent thread if available and none selected
-    if (loadedThreads.length > 0 && !currentThreadId()) {
-      await loadMessagesForThread(loadedThreads[0].id)
-      setCurrentThreadId(loadedThreads[0].id)
-    }
+    setThreads(convertedThreads)
+    logger.info(`Loaded ${convertedThreads.length} threads`)
   } catch (error: any) {
     logger.error(`Failed to load threads: ${error.message}`)
   }
 }
 
-// Enhanced tool call extraction with better error handling and status detection
-function extractContentAndToolCalls(content: any): { text: string; toolCalls: ToolCall[] } {
-  let text = ""
-  let toolCalls: ToolCall[] = []
-  
-  // Simple string
-  if (typeof content === 'string') {
-    return { text: content, toolCalls: [] }
-  }
-  
-  // MastraMessageContentV2 format: { format: 2, parts: [...] }
-  if (content?.format === 2 && Array.isArray(content.parts)) {
-    const textParts: string[] = []
-    
-    content.parts.forEach((part: any) => {
-      try {
-        // Text part
-        if (part.type === 'text' && part.text) {
-          textParts.push(part.text)
-        }
-        // Tool call/invocation with enhanced status detection
-        else if (part.type === 'tool-invocation' || part.type === 'tool-call') {
-          // Determine status more accurately
-          let status: 'calling' | 'complete' | 'error' = 'calling'
-          if (part.error) {
-            status = 'error'
-          } else if (part.result !== undefined || part.output !== undefined) {
-            status = 'complete'
-          }
-          
-          const toolCall: ToolCall = {
-            id: part.id || crypto.randomUUID(),
-            name: part.toolName || part.name || 'unknown',
-            status,
-            input: part.args || part.input || {},
-            output: part.result || part.output,
-            error: part.error
-          }
-          toolCalls.push(toolCall)
-        }
-        // Handle tool-result parts (separate from tool calls)
-        else if (part.type === 'tool-result') {
-          // Find corresponding tool call and update it
-          const existingCall = toolCalls.find(tc => tc.id === part.toolCallId)
-          if (existingCall) {
-            existingCall.output = part.result
-            existingCall.status = part.isError ? 'error' : 'complete'
-            if (part.isError) {
-              existingCall.error = part.result
-            }
-          }
-        }
-      } catch (partError: any) {
-        logger.warn(`Error processing message part: ${partError.message}`)
-      }
-    })
-    
-    text = textParts.filter(Boolean).join('')
-  }
-  // Legacy array format
-  else if (Array.isArray(content)) {
-    text = content
-      .map((c: any) => c.text || (typeof c === 'string' ? c : ''))
-      .filter(Boolean)
-      .join('')
-  }
-  // Object with text property
-  else if (content?.text) {
-    text = content.text
-  }
-  
-  return { text, toolCalls }
-}
-
-// Load messages for a thread
+// Load messages for a specific thread
 async function loadMessagesForThread(threadId: string): Promise<void> {
   try {
     const memoryStore = await storage.getStore('memory')
     if (!memoryStore) {
       logger.warn("Memory store not available")
-      setMessages([])
       return
     }
-    
-    const result = await memoryStore.listMessages({ threadId })
-    
-    const loadedMessages: ChatMessage[] = result.messages
-      .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-      .map((m: any) => {
-        const { text, toolCalls } = extractContentAndToolCalls(m.content)
-        return {
-          id: m.id,
-          role: m.role as 'user' | 'assistant',
-          content: text,
-          timestamp: new Date(m.createdAt),
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        }
-      })
-      .filter((m: ChatMessage) => m.content.trim() !== '' || (m.toolCalls && m.toolCalls.length > 0)) // Keep messages with tool calls even if no text
 
-    setMessages(loadedMessages)
-    logger.info(`Loaded ${loadedMessages.length} messages for thread ${threadId}`)
+    const threadMessages = await memoryStore.getMessages(threadId)
+    
+    // Convert to our ChatMessage type
+    const convertedMessages: ChatMessage[] = threadMessages.map((m: any) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: new Date(m.createdAt),
+      toolCalls: m.toolCalls || [],
+    }))
+
+    setMessages(convertedMessages)
+    logger.info(`Loaded ${convertedMessages.length} messages for thread ${threadId}`)
   } catch (error: any) {
-    logger.error(`Failed to load messages: ${error.message}`)
-    setMessages([])
+    logger.error(`Failed to load messages for thread ${threadId}: ${error.message}`)
   }
 }
 
-// Initialize store
-let initialized = false
-
 export function useAgentStore() {
-  // Initialize on first use
-  if (!initialized) {
-    initialized = true
-    loadThreadsFromStorage()
-  }
+  // Initialize by loading threads
+  loadThreadsFromStorage()
 
   const updateAgentStatus = (agentId: string, status: AgentStatus, currentTask?: string) => {
     const index = agents.findIndex(a => a.id === agentId)
@@ -207,9 +164,34 @@ export function useAgentStore() {
 
   const updateMessageContent = (messageId: string, content: string) => {
     setMessages(
-      messages().map((m) => 
-        m.id === messageId ? { ...m, content } : m
-      )
+      messages().map((m) => {
+        if (m.id === messageId) {
+          // Parse tool calls from content and clean the text
+          const { cleanText, toolCalls: parsedToolCalls } = parseToolCallBlocks(content)
+          
+          // Merge with existing tool calls, avoiding duplicates
+          const existingToolCalls = m.toolCalls || []
+          const mergedToolCalls = [...existingToolCalls]
+          
+          parsedToolCalls.forEach(newToolCall => {
+            const existingIndex = mergedToolCalls.findIndex(tc => 
+              tc.name === newToolCall.name && 
+              JSON.stringify(tc.input) === JSON.stringify(newToolCall.input)
+            )
+            
+            if (existingIndex === -1) {
+              mergedToolCalls.push(newToolCall)
+            }
+          })
+          
+          return { 
+            ...m, 
+            content: cleanText,
+            toolCalls: mergedToolCalls.length > 0 ? mergedToolCalls : m.toolCalls
+          }
+        }
+        return m
+      })
     )
   }
 
@@ -327,21 +309,21 @@ export function useAgentStore() {
 
       const response = await getVisionary().stream(userMessage, streamOptions)
 
-      // Enhanced streaming with tool call support
+      // Enhanced streaming with better tool call parsing
       let fullContent = ""
       const toolCallsMap = new Map<string, ToolCall>()
 
-      // Stream text chunks and tool calls
-      for await (const chunk of response.textStream) {
-        fullContent += chunk
-        updateMessageContent(assistantMessageId, fullContent)
-      }
-
-      // Handle tool calls from the full stream
+      // Process both text and tool calls from the full stream
       if (response.fullStream) {
         try {
           for await (const streamPart of response.fullStream) {
-            if (streamPart.type === 'tool-call' || streamPart.type === 'tool-invocation') {
+            // Handle text chunks
+            if (streamPart.type === 'text-delta' || streamPart.type === 'text') {
+              fullContent += streamPart.textDelta || streamPart.text || ""
+              updateMessageContent(assistantMessageId, fullContent)
+            }
+            // Handle tool calls
+            else if (streamPart.type === 'tool-call' || streamPart.type === 'tool-invocation') {
               const toolCall: ToolCall = {
                 id: streamPart.id || crypto.randomUUID(),
                 name: streamPart.toolName || streamPart.name || 'unknown',
@@ -353,6 +335,7 @@ export function useAgentStore() {
               addToolCallToMessage(assistantMessageId, toolCall)
               logger.info(`Tool call started: ${toolCall.name}`)
             }
+            // Handle tool results
             else if (streamPart.type === 'tool-result') {
               const toolCallId = streamPart.toolCallId || streamPart.id
               if (toolCallId && toolCallsMap.has(toolCallId)) {
@@ -371,7 +354,13 @@ export function useAgentStore() {
             }
           }
         } catch (streamError: any) {
-          logger.warn(`Error processing tool call stream: ${streamError.message}`)
+          logger.warn(`Error processing stream: ${streamError.message}`)
+        }
+      } else {
+        // Fallback to text stream only
+        for await (const chunk of response.textStream) {
+          fullContent += chunk
+          updateMessageContent(assistantMessageId, fullContent)
         }
       }
 

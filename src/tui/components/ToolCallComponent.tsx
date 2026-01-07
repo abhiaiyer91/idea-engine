@@ -13,11 +13,11 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     const status = props.toolCall.status
     switch (status) {
       case "calling":
-        return { color: "#ffff00", text: "calling...", icon: "⏳", pulse: true }
+        return { color: "#ffaa00", text: "calling...", icon: "⏳", pulse: true }
       case "complete":
-        return { color: "#00ff00", text: "complete", icon: "✅", pulse: false }
+        return { color: "#00ff88", text: "complete", icon: "✅", pulse: false }
       case "error":
-        return { color: "#ff0000", text: "error", icon: "❌", pulse: false }
+        return { color: "#ff4444", text: "error", icon: "❌", pulse: false }
       default:
         return { color: "#666", text: "unknown", icon: "❓", pulse: false }
     }
@@ -83,7 +83,7 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
   // Enhanced border color logic with better visual distinction
   const borderColor = createMemo(() => {
     if (props.toolCall.status === "error") return "#ff4444"
-    if (props.toolCall.status === "complete") return "#44ff44"
+    if (props.toolCall.status === "complete") return "#00ff88"
     if (props.toolCall.status === "calling") return "#ffaa00"
     return "#555"
   })
@@ -92,7 +92,7 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
   const backgroundColor = createMemo(() => {
     if (props.toolCall.status === "error") return "#2a1010"
     if (props.toolCall.status === "calling") return "#2a2010"
-    if (props.toolCall.status === "complete") return "#102a10"
+    if (props.toolCall.status === "complete") return "#0a2a0a"
     return "#1a1a1a"
   })
   
@@ -106,6 +106,19 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
   // Check if there's any expandable content
   const hasExpandableContent = createMemo(() => {
     return contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError
+  })
+  
+  // Get appropriate icon for tool type
+  const getToolIcon = createMemo(() => {
+    const name = props.toolCall.name.toLowerCase()
+    if (name.includes('file') || name.includes('read') || name.includes('write')) return "📄"
+    if (name.includes('git') || name.includes('commit') || name.includes('push')) return "🔀"
+    if (name.includes('search') || name.includes('find')) return "🔍"
+    if (name.includes('issue') || name.includes('github')) return "🐛"
+    if (name.includes('npm') || name.includes('install')) return "📦"
+    if (name.includes('test') || name.includes('run')) return "🧪"
+    if (name.includes('build') || name.includes('compile')) return "🔨"
+    return "🔧"
   })
   
   return (
@@ -129,7 +142,7 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
       >
         <text>
           {/* Tool icon with better visual hierarchy */}
-          <span style={{ fg: "#888" }}>🔧 </span>
+          <span style={{ fg: "#888" }}>{getToolIcon()} </span>
           <span style={{ fg: "#fff", bold: true }}>{displayName()}</span>
           <span style={{ fg: "#666" }}> • </span>
           
@@ -160,17 +173,17 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
           {/* Input section with better formatting */}
           <Show when={contentInfo().hasInput}>
             <box paddingTop={1}>
-              <text style={{ fg: "#aaa", bold: true }}>📥 Input:</text>
+              <text style={{ fg: "#88aaff", bold: true }}>📥 Input:</text>
             </box>
             <box 
               border={["left"]} 
-              borderColor="#444" 
+              borderColor="#4488ff" 
               paddingLeft={2} 
               marginLeft={1}
               marginTop={1}
-              backgroundColor="#0f0f0f"
+              backgroundColor="#0a0f1a"
             >
-              <text style={{ fg: "#ddd" }}>
+              <text style={{ fg: "#ccddff" }}>
                 {formatJson()(props.toolCall.input)}
               </text>
             </box>
@@ -179,17 +192,17 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
           {/* Output section with better formatting */}
           <Show when={contentInfo().hasOutput}>
             <box paddingTop={contentInfo().hasInput ? 2 : 1}>
-              <text style={{ fg: "#aaa", bold: true }}>📤 Output:</text>
+              <text style={{ fg: "#88ffaa", bold: true }}>📤 Output:</text>
             </box>
             <box 
               border={["left"]} 
-              borderColor="#444" 
+              borderColor="#44ff88" 
               paddingLeft={2} 
               marginLeft={1}
               marginTop={1}
-              backgroundColor="#0f0f0f"
+              backgroundColor="#0a1a0f"
             >
-              <text style={{ fg: "#ddd" }}>
+              <text style={{ fg: "#ccffdd" }}>
                 {formatJson()(props.toolCall.output)}
               </text>
             </box>
@@ -198,7 +211,7 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
           {/* Error section with enhanced visibility */}
           <Show when={contentInfo().hasError}>
             <box paddingTop={(contentInfo().hasInput || contentInfo().hasOutput) ? 2 : 1}>
-              <text style={{ fg: "#ff6666", bold: true }}>❌ Error:</text>
+              <text style={{ fg: "#ff8888", bold: true }}>❌ Error:</text>
             </box>
             <box 
               border={["left"]} 
@@ -208,7 +221,7 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
               marginTop={1}
               backgroundColor="#2a0a0a"
             >
-              <text style={{ fg: "#ffaaaa" }}>
+              <text style={{ fg: "#ffcccc" }}>
                 {props.toolCall.error}
               </text>
             </box>

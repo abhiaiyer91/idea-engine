@@ -47,7 +47,7 @@ export function ChatPanel(props: ChatPanelProps) {
           <For each={props.messages()}>
             {(message, index) => (
               <box flexDirection="column">
-                {/* Message text */}
+                {/* Message text - only show if there's actual content */}
                 <Show when={message.content.trim() !== ""}>
                   <box 
                     paddingLeft={1}
@@ -71,11 +71,11 @@ export function ChatPanel(props: ChatPanelProps) {
                 
                 {/* Tool calls - enhanced visual separation and handling */}
                 <Show when={message.toolCalls && message.toolCalls.length > 0}>
-                  <box flexDirection="column" paddingLeft={1} marginTop={1}>
+                  <box flexDirection="column" paddingLeft={1} marginTop={message.content.trim() !== "" ? 1 : 0}>
                     {/* Header for multiple tool calls */}
                     <Show when={message.toolCalls!.length > 1}>
-                      <box paddingBottom={1} marginBottom={1} border={["bottom"]} borderColor="#333">
-                        <text style={{ fg: "#888", italic: true }}>
+                      <box paddingBottom={1} marginBottom={1} border={["bottom"]} borderColor="#444">
+                        <text style={{ fg: "#aaa", italic: true }}>
                           🔧 {message.toolCalls!.length} tool calls:
                         </text>
                       </box>
@@ -93,6 +93,20 @@ export function ChatPanel(props: ChatPanelProps) {
                         </box>
                       )}
                     </For>
+                  </box>
+                </Show>
+                
+                {/* Show typing indicator for empty assistant messages without tool calls */}
+                <Show when={message.role === "assistant" && message.content === "" && (!message.toolCalls || message.toolCalls.length === 0)}>
+                  <box 
+                    paddingLeft={1}
+                    border={["left"]}
+                    borderColor="#0088ff"
+                  >
+                    <text>
+                      <span style={{ fg: "#0088ff", bold: true }}>Visionary: </span>
+                      <span style={{ fg: "#ffff00", blink: true }}>thinking...</span>
+                    </text>
                   </box>
                 </Show>
                 
