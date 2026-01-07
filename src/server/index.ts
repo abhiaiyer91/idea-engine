@@ -304,7 +304,7 @@ app.post('/api/engineer/start', async (c) => {
     // Thread ID is deterministic based on issue number
     const threadId = `engineer-${issueNumber}`
     
-    // Build the initial prompt
+    // Build the initial prompt - be explicit about issueNumber
     const prompt = `You are assigned to work on GitHub Issue #${issue.number}: "${issue.title}"
 
 ## Issue Description:
@@ -312,7 +312,17 @@ ${issue.body || 'No description provided.'}
 
 ## Labels: ${issue.labels?.map((l: any) => l.name).join(', ') || 'none'}
 
-Please implement this issue. Follow your workflow: create a branch, make changes, commit, push, and open a PR.`
+## YOUR TASK
+Implement this issue completely. The issue number is ${issue.number} - use this as the issueNumber parameter for ALL tool calls.
+
+You MUST:
+1. Call setupWorktree with issueNumber=${issue.number}
+2. Write the necessary code using writeFileContent with issueNumber=${issue.number}
+3. Commit with gitCommit with issueNumber=${issue.number}
+4. Push with gitPush with issueNumber=${issue.number}
+5. Create a PR with createPullRequest with issueNumber=${issue.number}
+
+Do NOT stop until you have a PR URL. Begin now.`
 
     const agent = mastra.getAgent('engineerAgent')
     
