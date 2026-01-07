@@ -1,23 +1,75 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { useAgentStore } from '../stores/useAgentStore'
 import type { ChatMessage } from '../types'
 
+// Simple markdown-like rendering for headers and code
+function renderContent(content: string) {
+  // Split into lines and process
+  const lines = content.split('\n')
+  const elements: ReactNode[] = []
+  let key = 0
+  
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      // H2 header
+      elements.push(
+        <div key={key++} className="text-blue-400 font-bold mt-3 mb-1">
+          {line.slice(3)}
+        </div>
+      )
+    } else if (line.startsWith('# ')) {
+      // H1 header
+      elements.push(
+        <div key={key++} className="text-blue-300 font-bold text-lg mt-3 mb-1">
+          {line.slice(2)}
+        </div>
+      )
+    } else if (line.startsWith('```')) {
+      // Code fence start/end - just skip the fence line
+      continue
+    } else if (line.startsWith('- ')) {
+      // List item
+      elements.push(
+        <div key={key++} className="text-gray-300 ml-4">
+          <span className="text-gray-500 mr-2">•</span>
+          {line.slice(2)}
+        </div>
+      )
+    } else if (line.trim() === '') {
+      // Empty line
+      elements.push(<div key={key++} className="h-2" />)
+    } else {
+      // Regular text
+      elements.push(
+        <div key={key++} className="text-gray-200">
+          {line}
+        </div>
+      )
+    }
+  }
+  
+  return elements
+}
+
 function Message({ message, agentType }: { message: ChatMessage; agentType: 'visionary' | 'engineer' }) {
   const isUser = message.role === 'user'
-  const agentLabel = agentType === 'engineer' ? 'Engineer: ' : 'Visionary: '
+  const agentLabel = agentType === 'engineer' ? 'Engineer' : 'Visionary'
   const agentColor = agentType === 'engineer' ? 'text-orange-500' : 'text-blue-500'
   const borderColor = agentType === 'engineer' ? 'border-orange-500' : 'border-blue-500'
   
   return (
-    <div className={`px-4 py-2 border-l-2 ${
+    <div className={`px-4 py-3 border-l-2 ${
       isUser ? 'border-green-500' : borderColor
     }`}>
-      <span className={`font-bold ${isUser ? 'text-green-500' : agentColor}`}>
-        {isUser ? 'You: ' : agentLabel}
-      </span>
-      <span className="text-white whitespace-pre-wrap">{message.content}</span>
-      {message.role === 'assistant' && message.content === '' && (
-        <span className="text-yellow-400 animate-pulse">▊</span>
+      <div className={`font-bold mb-2 ${isUser ? 'text-green-500' : agentColor}`}>
+        {isUser ? 'You' : agentLabel}
+      </div>
+      {message.content ? (
+        <div className="space-y-0">
+          {renderContent(message.content)}
+        </div>
+      ) : (
+        <span className="text-yellow-400 animate-pulse">Thinking...</span>
       )}
     </div>
   )
@@ -51,13 +103,6 @@ export function ChatPanel() {
   const agentSubtitle = isEngineer 
     ? `Working on Issue #${issueNumber || '?'}` 
     : 'Describe your ideas'
-  // Note: We use SSE streaming for real-time updates, no polling needed
-
-  // Debug: log when messages change
-  useEffect(() => {
-    console.log('[ChatPanel] messages updated:', messages.length, 'msgs, first content:', messages[0]?.content?.slice(0, 50))
-  }, [messages])
-
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -95,10 +140,6 @@ export function ChatPanel() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Debug info */}
-        <div className="text-xs text-gray-600 font-mono">
-          [Debug] messages: {messages.length}, streaming: {String(isStreaming)}, content: {messages[0]?.content?.length || 0} chars
-        </div>
         {messages.length === 0 ? (
           <div className="text-gray-500">
             {isEngineer 
