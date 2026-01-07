@@ -45,7 +45,7 @@ export function ChatPanel(props: ChatPanelProps) {
           }
         >
           <For each={props.messages()}>
-            {(message) => (
+            {(message, index) => (
               <box flexDirection="column">
                 {/* Message text */}
                 <Show when={message.content.trim() !== ""}>
@@ -83,11 +83,11 @@ export function ChatPanel(props: ChatPanelProps) {
                     
                     {/* Individual tool calls */}
                     <For each={message.toolCalls}>
-                      {(toolCall, index) => (
+                      {(toolCall, toolIndex) => (
                         <box>
                           <ToolCallComponent toolCall={toolCall} />
                           {/* Add spacing between multiple tool calls */}
-                          <Show when={index() < message.toolCalls!.length - 1}>
+                          <Show when={toolIndex() < message.toolCalls!.length - 1}>
                             <box height={1} />
                           </Show>
                         </box>
@@ -97,7 +97,9 @@ export function ChatPanel(props: ChatPanelProps) {
                 </Show>
                 
                 {/* Add spacing between messages */}
-                <box height={1} />
+                <Show when={index() < props.messages().length - 1}>
+                  <box height={1} />
+                </Show>
               </box>
             )}
           </For>

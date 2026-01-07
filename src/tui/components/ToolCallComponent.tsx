@@ -103,6 +103,11 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     return name.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())
   })
   
+  // Check if there's any expandable content
+  const hasExpandableContent = createMemo(() => {
+    return contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError
+  })
+  
   return (
     <box 
       border 
@@ -118,9 +123,9 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
     >
       {/* Tool header - always visible with enhanced styling */}
       <box 
-        paddingBottom={contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError ? 1 : 0}
-        onClick={toggleExpanded}
-        cursor="pointer"
+        paddingBottom={hasExpandableContent() ? 1 : 0}
+        onClick={hasExpandableContent() ? toggleExpanded : undefined}
+        cursor={hasExpandableContent() ? "pointer" : "default"}
       >
         <text>
           {/* Tool icon with better visual hierarchy */}
@@ -143,14 +148,14 @@ export function ToolCallComponent(props: ToolCallComponentProps) {
           </Show>
           
           {/* Expand/collapse indicator */}
-          <Show when={contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError}>
+          <Show when={hasExpandableContent()}>
             <span style={{ fg: "#666" }}> {expanded() ? "▼" : "▶"}</span>
           </Show>
         </text>
       </box>
       
       {/* Expandable details with improved layout */}
-      <Show when={expanded() && (contentInfo().hasInput || contentInfo().hasOutput || contentInfo().hasError)}>
+      <Show when={expanded() && hasExpandableContent()}>
         <box flexDirection="column">
           {/* Input section with better formatting */}
           <Show when={contentInfo().hasInput}>
